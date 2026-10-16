@@ -34,6 +34,10 @@ interface Ptr {
   y: number;
   role: 'aim' | 'swipe' | 'none';
   t: number;
+  /** Direction of the last lane hop this touch fired (0 = none yet). */
+  fired: number;
+  /** Furthest y reached in the fired direction since the last hop. */
+  ext: number;
 }
 
 export function GameScreen({ resume }: { resume: boolean }) {
@@ -279,7 +283,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
       if (swiping) input.current.juke = true;
       else role = 'swipe';
     }
-    ptrs.current.set(e.pointerId, { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, role, t: performance.now() });
+    ptrs.current.set(e.pointerId, { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, role, t: performance.now(), fired: 0, ext: e.clientY });
   };
   const onMove = (e: React.PointerEvent) => {
     const p = ptrs.current.get(e.pointerId);
@@ -293,17 +297,24 @@ export function GameScreen({ resume }: { resume: boolean }) {
       p.sx = p.x;
       p.sy = p.y;
     }
-    // each vertical flick scoots the player one lane; keep dragging to keep scooting
+    // one flick = one lane hop. Flicking back the other way (measured from where the
+    // finger turned around) hops back; a long drag the same way counts as a second swipe.
     if (p.role === 'swipe') {
-      const dx = p.x - p.sx;
-      const dy = p.y - p.sy;
-      if (Math.abs(dy) >= SWIPE_PX && Math.abs(dy) > Math.abs(dx) * 0.7) {
-        input.current.scoot += Math.sign(dy);
+      if (p.fired === 0 || (p.y - p.ext) * p.fired > 0) p.ext = p.y;
+      const fwd = p.y - p.sy; // since the last hop (or touch start)
+      const back = p.y - p.ext; // since the turnaround
+      const dx = Math.abs(p.x - p.sx);
+      let dirn = 0;
+      if (p.fired === 0 && Math.abs(fwd) >= SWIPE_PX && Math.abs(fwd) > dx * 0.7) dirn = Math.sign(fwd);
+      else if (p.fired !== 0 && back * p.fired <= -SWIPE_PX) dirn = -p.fired;
+      else if (p.fired !== 0 && fwd * p.fired >= SWIPE_PX * 3) dirn = p.fired;
+      if (dirn) {
+        input.current.scoot += dirn;
+        p.fired = dirn;
         p.sx = p.x;
         p.sy = p.y;
+        p.ext = p.y;
         if (settingsRef.current.haptics) navigator.vibrate?.(8);
-      } else if (Math.abs(dx) > SWIPE_PX * 2) {
-        p.sx = p.x;
       }
     }
   };

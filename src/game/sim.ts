@@ -57,7 +57,9 @@ export function passPeak(d: number) {
 /** Real-time pace of live plays: below 1 plays out slower and more deliberately. */
 export const PACE = 0.74;
 /** Yards a single swipe scoots the user's player sideways. */
-export const SCOOT_YDS = 2.6;
+export const SCOOT_YDS = 3;
+/** Seconds of sim time a lane hop takes: quick and snappy, like a lane-runner. */
+export const HOP_T = 0.13;
 
 export interface AiSkill {
   off: number; // -1..1 adjustments to the offense's AI quality
@@ -125,8 +127,8 @@ export interface Actor {
   downT: number;
   tackleCd: number;
   facing: 1 | -1;
-  /** Lateral target set by swipes for the user's player. */
-  laneY: number | null;
+  /** An in-progress lane hop from a swipe: y eases from -> to while running on. */
+  hop: { from: number; to: number; t: number } | null;
   react: number;
   shedFrom: number;
   shedT: number;
@@ -214,7 +216,7 @@ function makeActor(i: number, side: 0 | 1, role: string, sp: SimPlayer, x: numbe
     maxSpd: 6.1 + r.spd * 0.034,
     accel: 9 + r.acc * 0.08,
     mode: 'idle', route: null, runPath: null, manTarget: -1, zone: null,
-    engaged: -1, stun: 0, downT: 0, tackleCd: 0, facing: side === OFF ? 1 : -1, laneY: null,
+    engaged: -1, stun: 0, downT: 0, tackleCd: 0, facing: side === OFF ? 1 : -1, hop: null,
     react: 0.2, shedFrom: -1, shedT: 0, jukeT: 0, jukeCd: 0, jukeDir: 0, stamina: 1,
     anim: 'stand', animT: 0, hist: new Array(80).fill(0), histI: 0, readT: 0, biteT: 0, catchT: 0, zoneJam: 0, hx: x, hy: y, lunged: false, jukeGood: false,
   };
@@ -735,7 +737,11 @@ export class PlaySim {
     if (this.userActor < 0) return;
     const u = this.actors[this.userActor];
     const s = this.scrim;
-    if (inp.scoot) u.laneY = clamp((u.laneY ?? u.y) + inp.scoot * SCOOT_YDS, 0.8, FIELD_W - 0.8);
+    if (inp.scoot) {
+      // chained swipes stack lanes; each hop restarts from where he is now
+      const base = u.hop ? u.hop.to : u.y;
+      u.hop = { from: u.y, to: clamp(base + inp.scoot * SCOOT_YDS, 0.8, FIELD_W - 0.8), t: 0 };
+    }
     // QB pre-throw
     if (s && u.i === this.qb && this.ball.holder === u.i && u.mode === 'qb') {
       if (inp.throwAt && this.canThrow()) {
@@ -844,7 +850,7 @@ export class PlaySim {
     this.ball.holder = a.i;
     this.carrier = a.i;
     this.carrierHow = how;
-    a.laneY = null;
+    a.hop = null;
     a.mode = 'carry';
     a.anim = 'run';
     this.carrierDir = a.side === OFF ? 1 : -1;
@@ -1063,11 +1069,9 @@ export class PlaySim {
         }
         return;
       }
-      if (q.laneY !== null && (this.handedOff || !run)) {
-        // swipes slide the quarterback along his drop depth
-        ty = q.laneY;
-        if (Math.abs(q.laneY - q.y) < 0.2 && Math.hypot(q.vx, q.vy) < 0.5) q.laneY = null;
-        desired.set(q.i, [clamp((tx - q.x) * 3, -q.maxSpd, q.maxSpd) * 0.5, clamp((ty - q.y) * 6, -q.maxSpd * 0.8, q.maxSpd * 0.8)]);
+      if (q.hop && (this.handedOff || !run)) {
+        // hopping over in the pocket: hold the drop depth, the hop moves him sideways
+        desired.set(q.i, [clamp((tx - q.x) * 3, -q.maxSpd, q.maxSpd) * 0.5, 0]);
         return;
       }
       this.steer(q, tx, ty, 0.75);
@@ -1415,15 +1419,8 @@ export class PlaySim {
         const d = Math.hypot(mx, my) || 1;
         desired.set(c.i, [(mx / d) * sp, (my / d) * sp]);
       } else {
-        // runs downfield on its own; swipes scoot it over a lane
-        let vy = 0;
-        if (c.laneY !== null) {
-          const dy = c.laneY - c.y;
-          if (Math.abs(dy) < 0.15) c.laneY = null;
-          else vy = clamp(dy * 7, -sp * 0.95, sp * 0.95);
-        }
-        const vx = Math.sqrt(Math.max(0, sp * sp - vy * vy * 0.55));
-        desired.set(c.i, [dir * vx, vy]);
+        // runs straight downfield at full speed; swipes hop him over a lane (see integrate)
+        desired.set(c.i, [dir * sp, 0]);
       }
     } else {
       sprint = c.stamina > 0.2;
@@ -1787,6 +1784,14 @@ export class PlaySim {
     }
     a.x += a.vx * dt;
     a.y += a.vy * dt;
+    if (a.hop) {
+      // snap sideways on an ease-out curve; forward speed is untouched
+      a.hop.t += dt;
+      const k = Math.min(1, a.hop.t / HOP_T);
+      a.y = a.hop.from + (a.hop.to - a.hop.from) * (1 - Math.pow(1 - k, 3));
+      a.vy = 0;
+      if (k >= 1) a.hop = null;
+    }
     // a quarterback dropping back keeps his eyes (and throwing arm) downfield
     const qbSettled = a.anim === 'throw' || (a.mode === 'qb' && this.ball.holder === a.i);
     if (qbSettled) {
