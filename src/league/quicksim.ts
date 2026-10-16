@@ -245,10 +245,10 @@ function simPass(g: GameState, O: SideCtx, D: SideCtx, rng: Rng, box: BoxCollect
   let air = depthCat === 'short' ? rng.range(-2, 9) : depthCat === 'medium' ? rng.range(10, 19) : rng.range(20, 45);
   air = Math.min(air, toGoal + 8);
   const sep = (uo.wrSep - ud.dbCov) * 0.006;
-  let comp = 0.69 + (uo.qbAcc - 72) * 0.005 + sep + b * 0.005 - (depthCat === 'deep' ? 0.28 : depthCat === 'medium' ? 0.1 : -0.06);
+  let comp = 0.82 + (uo.qbAcc - 72) * 0.005 + sep + b * 0.005 - (depthCat === 'deep' ? 0.28 : depthCat === 'medium' ? 0.1 : -0.06);
   if (weather === 'rain' || weather === 'snow') comp -= 0.04;
   if (weather === 'wind') comp -= depthCat === 'deep' ? 0.08 : 0.02;
-  comp = clamp(comp, 0.2, 0.86);
+  comp = clamp(comp, 0.3, 0.94);
   const intP = clamp(0.022 - (uo.qbAcc - 72) * 0.0006 - sep * 0.08 + (depthCat === 'deep' ? 0.018 : 0) - b * 0.001, 0.006, 0.06);
   const target = pickW(rng, [...O.wr.slice(0, 3), ...O.te.slice(0, 1), ...O.rb.slice(0, 1), ...O.wr.slice(3), ...O.te.slice(1), ...O.rb.slice(1)], [1.25, 1.05, 0.7, 0.85, 0.65, 0.2, 0.15, 0.2]);
   if (qb) box.add(qb.id, off, { pAtt: 1 });

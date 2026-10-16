@@ -46,6 +46,9 @@ export interface PlayInput {
 }
 export const NO_INPUT: PlayInput = { move: null, sprint: false, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0 };
 
+/** Passing tuning: arcade-friendly completion rates (about 75% overall). */
+export const PASS_TUNE = { spread: 0.84, reach: 2.5, stretch: 1.4, hands: 0.06, contest: 0.78, tip: 0.3 };
+
 /** Apex of a pass above its straight line, in yards: touch passes loft, short ones still clear the line. */
 export function passPeak(d: number) {
   return 0.9 + d * 0.13;
@@ -879,7 +882,7 @@ export class PlaySim {
     const pressure = nearest && dist(nearest.x, nearest.y, q.x, q.y) < 2.6 && nearest.engaged < 0 ? 1.6 : 1;
     const moving = Math.sqrt(q.vx * q.vx + q.vy * q.vy) > 3 ? 1.35 : 1;
     const wx = s.weather === 'wind' ? 1.25 : s.weather === 'rain' ? 1.15 : 1;
-    const sigma = (0.25 + d * 0.026) * (1.55 - r.tha / 100) * pressure * moving * wx;
+    const sigma = (0.25 + d * 0.026) * (1.55 - r.tha / 100) * pressure * moving * wx * PASS_TUNE.spread;
     const ex = this.rng.normal(0, sigma);
     const ey = this.rng.normal(0, sigma);
     const fx = q.x + dx + ex;
@@ -1857,15 +1860,16 @@ export class PlaySim {
     const endZ = b.kind === 'kick' ? 1.3 : 1.3;
     b.z = b.fz * (1 - u) + endZ * u + 4 * b.peak * u * (1 - u);
     if (b.kind === 'pass') {
-      // tipped passes at the line / jumped routes while the ball is low
-      if (b.z < 2.6) {
+      // tipped passes at the line / jumped routes while the ball is still rising;
+      // coverage at the catch point is settled by the contest in resolveCatch
+      if (b.z < 2.6 && u < 0.4) {
         for (const o of this.actors) {
           if (o.side !== DEF || o.mode === 'down' || o.stun > 0 || b.touched.has(o.i)) continue;
           if (dist(o.x, o.y, b.x, b.y) < 0.85) {
             b.touched.add(o.i);
             const hands = o.sp.r.cth;
             const pInt = clamp(0.06 + (hands - 50) * 0.003 + this.setup.skill.def * 0.03, 0.03, 0.25);
-            const pTip = 0.45;
+            const pTip = PASS_TUNE.tip;
             const roll = this.rng.next();
             if (roll < pInt) {
               this.interception(o);
@@ -1948,7 +1952,7 @@ export class PlaySim {
     const weather = this.setup.weather === 'rain' || this.setup.weather === 'snow' ? 0.05 : 0;
     const skillD = this.setup.skill.def;
     // defender in better position plays the ball
-    if (def && dd < 1.7 && (!rec || dd < dr - 0.35 || dr > 2.1)) {
+    if (def && dd < 1.7 && (!rec || dd < dr - 0.35 || dr > PASS_TUNE.reach)) {
       const hands = def.sp.r.cth;
       const pInt = clamp(0.1 + (hands - 50) * 0.005 + (def.sp.r.cov - 60) * 0.002 + skillD * 0.04 - (dd - 0.5) * 0.1, 0.04, 0.45);
       if (this.rng.chance(pInt)) {
@@ -1959,16 +1963,16 @@ export class PlaySim {
       }
       return;
     }
-    if (!rec || dr > 2.1) {
+    if (!rec || dr > PASS_TUNE.reach) {
       this.incomplete('Incomplete', null);
       return;
     }
     const cth = rec.sp.r.cth;
-    let p = 0.52 + cth * 0.0047 - weather;
-    if (dr > 1.1) p -= (dr - 1.1) * 0.42; // diving / stretching catch
+    let p = 0.52 + PASS_TUNE.hands + cth * 0.0047 - weather;
+    if (dr > PASS_TUNE.stretch) p -= (dr - PASS_TUNE.stretch) * 0.42; // diving / stretching catch
     let contest = 0;
     if (def && dd < 1.7) {
-      contest = clamp(((1.7 - dd) / 1.7) * (0.45 + (def.sp.r.cov - cth) * 0.005 + skillD * 0.05), 0, 0.75);
+      contest = clamp(((1.7 - dd) / 1.7) * (0.45 + (def.sp.r.cov - cth) * 0.005 + skillD * 0.05) * PASS_TUNE.contest, 0, 0.75);
       p *= 1 - contest;
     }
     p = clamp(p, 0.03, 0.97);

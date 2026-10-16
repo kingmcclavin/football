@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, Btn } from './common';
 import { Match, type MatchSnapshot } from '../game/match';
 import { Renderer, type ViewState } from '../render/renderer';
-import { NO_INPUT, type PlayInput } from '../game/sim';
+import { NO_INPUT, PASS_TUNE, type PlayInput } from '../game/sim';
 import { PLAYS, DEF_CALLS, type PlayCategory } from '../game/playbook';
 import { applyGameResult, completeWeekAfterUserGame, gameWeather, userGameThisWeek, ROUND_NAME } from '../league/season';
 import { recordWeekFinances } from '../league/frontoffice';
@@ -254,7 +254,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
         if (t && Math.hypot(p.x - p.sx, p.y - p.sy) > 8) {
           const q = sim.actors[sim.qb];
           const d = Math.hypot(t.x - q.x, t.y - q.y);
-          const err = (0.25 + d * 0.026) * (1.55 - q.sp.r.tha / 100) * 1.4;
+          const err = (0.25 + d * 0.026) * (1.55 - q.sp.r.tha / 100) * 1.4 * PASS_TUNE.spread;
           view.current.aim = { active: true, tx: t.x, ty: t.y, err };
         }
       }
