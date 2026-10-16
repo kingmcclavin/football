@@ -14,7 +14,7 @@ import {
   type GameState, type KickResult, type ScrimmageResult, type Side,
 } from './rules';
 import { decideOffense, fgMakeProb, maxFgRange, pickDefense, pickPlay, shouldKneel, wantsOnside, wantsTwoPoint, type OffDecision } from './ai';
-import { DEF_BY_ID, PLAY_BY_ID, type DefCall, type PlayDef } from './playbook';
+import { DEF_BY_ID, PLAY_BY_ID, makeOptionPlay, type DefCall, type PlayDef } from './playbook';
 import { HASH_BOT, HASH_TOP, MID_Y, NO_INPUT, PACE, PlaySim, type PlayInput, type SimOutcome, type ReturnSetup } from './sim';
 
 export type Stage =
@@ -228,6 +228,7 @@ export class Match {
       this.stage = 'playcall';
       this.coachCalled = false;
       if (this.settings.playCalling === 'coach') this.coachCall();
+      else if (this.settings.playCalling === 'option') this.coachCall(true);
       return;
     }
     this.aiOffense();
@@ -258,32 +259,37 @@ export class Match {
    * user goes straight to the line. 4th downs, kneels, spikes and clock-situation kicks
    * stay with the user on the play-call screen (free).
    */
-  private coachCall() {
+  private coachCall(option = false) {
     const g = this.g;
     if (g.down >= 4 || this.twoPointTry) return;
     const t = this.aiTendencies(this.userSide);
     const lean = this.c.strategy.off === 'pass' ? 0.15 : this.c.strategy.off === 'run' ? -0.15 : 0;
     const decision = decideOffense(g, { ...t, passBias: t.passBias + lean }, this.rng);
     if (decision !== 'run' && decision !== 'pass') return;
-    const play = pickPlay(g, decision, this.rng);
+    // run-or-pass: every snap is the same live option with fresh routes and a fresh lane
+    const play = option ? makeOptionPlay((n) => this.rng.int(0, n - 1)) : pickPlay(g, decision, this.rng);
     // the between-plays runoff waits for the snap, so a timeout at the line still counts
-    this.choosePlay(play.id, true);
-    if (this.stage === 'presnap') this.coachCalled = true;
+    this.choosePlay(play, true);
+    if (this.stage === 'presnap') this.coachCalled = !option;
+    this.optionCalled = option && this.stage === 'presnap';
   }
 
   /** Coach mode: a change is available (free on the play-call screen in normal mode). */
   private pendingRunoff = false;
+  /** The current snap is a run-or-pass option play (shows the hand-off controls). */
+  optionCalled = false;
 
   canChangePlay() {
     return this.stage === 'presnap' && this.userOnOffense && (!this.coachCalled || this.playChanges > 0);
   }
 
   /** User picks an offensive play (or a special) from the play-call screen. */
-  choosePlay(id: string, deferRunoff = false) {
+  choosePlay(id: string | PlayDef, deferRunoff = false) {
     const g = this.g;
     if (id === 'punt') return this.startMeter('punt');
     if (id === 'fg') return this.startMeter('fg');
-    const play = PLAY_BY_ID[id];
+    const play = typeof id === 'string' ? PLAY_BY_ID[id] : id;
+    if (typeof id === 'string') this.optionCalled = false;
     if (!play) return;
     this.pendingRunoff = deferRunoff && g.phase === 'scrimmage' && !this.runoffDone;
     if (g.phase === 'scrimmage' && !this.runoffDone && !deferRunoff) {
@@ -706,7 +712,7 @@ export class Match {
       const steps = Math.max(1, Math.ceil((dt * speed) / (1 / 60)));
       const sub = (dt * speed) / steps;
       for (let i = 0; i < steps; i++) {
-        this.sim.step(sub, i === 0 ? input : { ...input, juke: false, dive: false, tuck: false, throwAt: null, kneel: false, fairCatch: false, scoot: 0 });
+        this.sim.step(sub, i === 0 ? input : { ...input, juke: false, dive: false, tuck: false, throwAt: null, kneel: false, fairCatch: false, scoot: 0, handoff: false });
         this.collectSimSounds();
         if (this.sim.finished) break;
       }

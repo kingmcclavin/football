@@ -15,8 +15,9 @@ export interface Settings {
   artStyle: 'sheet' | 'original';
   /** Which way the user's team attacks on screen; it never switches during a game. */
   driveDir: 'right' | 'left';
-  /** 'choose': pick every play. 'coach': the coach picks, with a few changes per game. */
-  playCalling: 'choose' | 'coach';
+  /** 'choose': pick every play. 'coach': the coach picks, with a few changes per game.
+   *  'option': every snap is run-or-pass (routes for everyone, an optional hand-off). */
+  playCalling: 'choose' | 'coach' | 'option';
 }
 
 export const DEFAULT_SETTINGS: Settings = {

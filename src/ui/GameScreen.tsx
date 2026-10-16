@@ -117,7 +117,7 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
         const inp = buildInput(m);
         m.update(dt, inp);
         // clear edge-triggered inputs
-        input.current = { ...input.current, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0 };
+        input.current = { ...input.current, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0, handoff: false };
       }
       updateAimView(m);
       try {
@@ -185,6 +185,7 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
       if (k === 'x' || k === 'c') input.current.dive = true;
       if (k === 'e' && mode === 'aim') input.current.tuck = true;
       if (k === 'k') input.current.kneel = true;
+      if (k === 'h') input.current.handoff = true;
       if (k === 'v' && m.canSimDrive()) m.simDrive();
       if (k === 'f') input.current.fairCatch = true;
       if (k === 't' && (m.stage === 'playcall' || m.stage === 'defcall' || m.stage === 'presnap')) {
@@ -506,7 +507,10 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
 
           {m.stage === 'live' && mode === 'aim' && (
             <>
-              <div className="hint">{app.settings.aimStyle === 'pull' ? 'Drag back to aim, release to throw' : 'Drag to the spot, release to throw'}</div>
+              <div className="hint">{m.sim?.optionOpen() ? 'HAND OFF to run it, or drag back to throw' : app.settings.aimStyle === 'pull' ? 'Drag back to aim, release to throw' : 'Drag to the spot, release to throw'}</div>
+              {m.sim?.optionOpen() && (
+                <button className="gbtn" style={{ [left ? 'left' : 'right']: 'calc(16px + var(--safe-right))', bottom: 'calc(16px + var(--safe-bottom))', width: 92, height: 92 }} onPointerDown={(e) => { e.stopPropagation(); sfx('click'); input.current.handoff = true; }}>HAND<br />OFF</button>
+              )}
               <button className="gbtn red" style={{ [left ? 'right' : 'left']: 'calc(16px + var(--safe-left))', bottom: 'calc(16px + var(--safe-bottom))' }} onPointerDown={(e) => { e.stopPropagation(); input.current.tuck = true; }}>RUN</button>
             </>
           )}
@@ -602,7 +606,7 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, sound: !app.settings.sound })}>Sound: {app.settings.sound ? 'On' : 'Off'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, gameSpeed: app.settings.gameSpeed >= 1.2 ? 0.85 : app.settings.gameSpeed >= 1 ? 1.25 : 1 })}>Speed: {app.settings.gameSpeed >= 1.2 ? 'Fast' : app.settings.gameSpeed >= 1 ? 'Normal' : 'Slow'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, driveDir: app.settings.driveDir === 'left' ? 'right' : 'left' })}>Drive: {app.settings.driveDir === 'left' ? '◀ Left' : 'Right ▶'}</Btn>
-                  <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, playCalling: app.settings.playCalling === 'coach' ? 'choose' : 'coach' })}>Play calls: {app.settings.playCalling === 'coach' ? `Coach (${m.playChanges} changes)` : 'You'}</Btn>
+                  <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, playCalling: app.settings.playCalling === 'choose' ? 'coach' : app.settings.playCalling === 'coach' ? 'option' : 'choose' })}>Play calls: {app.settings.playCalling === 'coach' ? `Coach (${m.playChanges} changes)` : app.settings.playCalling === 'option' ? 'Run or pass' : 'You'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseMode: app.settings.defenseMode === 'call' ? 'auto' : 'call' })}>Defense calls: {app.settings.defenseMode === 'call' ? 'You' : 'Auto'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseView: app.settings.defenseView === 'watch' ? 'fast' : app.settings.defenseView === 'fast' ? 'skip' : app.settings.defenseView === 'skip' ? 'drive' : 'watch' })}>Opp. drives: {({ watch: 'Watch', fast: 'Fast', skip: 'Results', drive: 'Sim drive' } as const)[app.settings.defenseView]}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, aimStyle: app.settings.aimStyle === 'pull' ? 'point' : 'pull' })}>Aim: {app.settings.aimStyle === 'pull' ? 'Pull back' : 'Point'}</Btn>
@@ -611,7 +615,7 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
                 <Btn kind="blue" wide onClick={() => { if (confirm('Simulate the rest of this game?')) { m.simulateRest(); togglePause(); setTick((x) => x + 1); } }}>Simulate Rest of Game</Btn>
                 <Btn kind="ghost" wide onClick={quit}>{exhibition ? 'Quit Exhibition' : 'Save & Quit to Hub'}</Btn>
               </div>
-              <div className="tiny muted" style={{ marginTop: 8 }}>Keyboard: V sim defensive drive, W/S scoot, Shift or forward arrow burst, arrows aim, Space snap/throw/juke, Shift burst, X dive, E run, T timeout, P pause</div>
+              <div className="tiny muted" style={{ marginTop: 8 }}>Keyboard: H hand off, V sim defensive drive, W/S scoot, Shift or forward arrow burst, arrows aim, Space snap/throw/juke, Shift burst, X dive, E run, T timeout, P pause</div>
             </div>
           )}
         </div>

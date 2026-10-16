@@ -43,6 +43,8 @@ export interface PlayInput {
   throwAt: { x: number; y: number } | null;
   /** Lateral lane changes requested this frame (swipes), in +y / -y units. */
   scoot: number;
+  /** Run-or-pass plays: give the ball to the back during the mesh window. */
+  handoff?: boolean;
 }
 export const NO_INPUT: PlayInput = { move: null, sprint: false, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0 };
 
@@ -329,14 +331,14 @@ export class PlaySim {
         a.route = { pts: def.pts.map(([fx, fi]) => [a.x + fx, a.y + fi * inside] as [number, number]), idx: 0, end: def.end };
         a.mode = 'route';
       } else {
-        a.mode = play.run ? 'runblock' : 'passblock';
+        a.mode = play.run && !play.option ? 'runblock' : 'passblock';
       }
     }
     const scr = this.actors.find((a) => a.side === OFF && (play.routes[a.role as Slot] === 'screen' || play.routes[a.role as Slot] === 'bubble'));
     if (scr) this.screenTarget = scr.i;
-    this.isRunPlay = !!play.run && !play.fake;
+    this.isRunPlay = !!play.run && !play.fake && !play.option;
     this.isPassPlay = !this.isRunPlay;
-    if (play.run && !play.fake) for (const a of this.actors) if (a.side === OFF && (a.mode === 'passblock')) a.mode = 'runblock';
+    if (this.isRunPlay) for (const a of this.actors) if (a.side === OFF && (a.mode === 'passblock')) a.mode = 'runblock';
     // run carrier path
     if (play.run) {
       const carrierSlot = play.run.carrier;
@@ -610,7 +612,7 @@ export class PlaySim {
     if (this.passThrown || this.handedOff) return false;
     const q = this.actors[this.qb];
     if (!q || this.ball.state !== 'held' || this.ball.holder !== q.i) return false;
-    if (this.scrim.play.run && !this.scrim.play.fake) return false;
+    if (this.scrim.play.run && !this.scrim.play.fake && !this.scrim.play.option) return false;
     return q.x <= this.los + 0.3 && q.mode !== 'down';
   }
 
@@ -661,7 +663,7 @@ export class PlaySim {
         }
       }
     }
-    this.aimAllowed = !s.play.run || !!s.play.fake;
+    this.aimAllowed = !s.play.run || !!s.play.fake || !!s.play.option;
     // draws sell pass first: second-level defenders are slow to read the run
     if (s.play.id === 'draw') for (const a of this.actors) if (a.side === DEF && a.role !== 'DL') a.readT += 0.7;
     if (s.play.run && s.play.run.carrier === 'QB' && q) {
@@ -737,6 +739,7 @@ export class PlaySim {
     if (this.userActor < 0) return;
     const u = this.actors[this.userActor];
     const s = this.scrim;
+    if (inp.handoff && this.optionOpen()) this.optionGive = true;
     if (inp.scoot) {
       // chained swipes stack lanes; each hop restarts from where he is now
       const base = u.hop ? u.hop.to : u.y;
@@ -808,6 +811,16 @@ export class PlaySim {
 
   // ------------------------------------------------------------------ handoff / run start
 
+  /** Run-or-pass: the user asked to hand off, and whether the window has closed. */
+  private optionGive = false;
+  private optionClosed = false;
+
+  /** Run-or-pass play with the hand-off window still open. */
+  optionOpen() {
+    const s = this.scrim;
+    return !!s?.play.option && this.phase === 'live' && !this.handedOff && !this.passThrown && !this.optionClosed && this.ball.holder === this.qb;
+  }
+
   private handleHandoff() {
     const s = this.scrim;
     if (!s || !s.play.run || this.handedOff || this.passThrown) return;
@@ -815,6 +828,28 @@ export class PlaySim {
     const q = this.actors[this.qb];
     const rb = this.actors.find((a) => a.side === OFF && a.role === run.carrier);
     if (!q || !rb || this.ball.holder !== q.i) return;
+    if (s.play.option) {
+      if (this.optionClosed) return;
+      if (this.optionGive && dist(q.x, q.y, rb.x, rb.y) < 3.4) {
+        this.handedOff = true;
+        this.isRunPlay = true;
+        this.isPassPlay = false;
+        this.giveBall(rb, 'rush');
+        this.stat(rb.sp.pid, 'rAtt', 1);
+        if (s.userControls) this.userActor = rb.i;
+        q.mode = 'idle';
+        q.runPath = null;
+        for (const a of this.actors) if (a.side === OFF && a.mode === 'passblock') a.mode = 'runblock';
+      } else if (this.t > run.mesh) {
+        // no hand-off: the back leaks out as a check-down and it's a pass play
+        this.optionClosed = true;
+        rb.runPath = null;
+        const inside = rb.y < s.ballY ? 1 : -1;
+        rb.route = { pts: ROUTES.checkdown.pts.map(([fx, fi]) => [rb.x + fx, rb.y + fi * inside] as [number, number]), idx: 0, end: 'stop' };
+        rb.mode = 'route';
+      }
+      return;
+    }
     if (run.carrier === 'QB') return;
     if (this.t < run.mesh) return;
     if (run.pitch) {
@@ -1049,7 +1084,7 @@ export class PlaySim {
     // drop back / mesh
     let tx = this.qbDropX;
     let ty = this.qbDropY;
-    if (run && !this.handedOff) {
+    if (run && !this.handedOff && !(s.play.option && this.optionClosed)) {
       const fake = run.qbFake ?? [run.path[0][0] + 0.6, run.path[0][1] * 0.5];
       tx = this.los + fake[0];
       ty = s.ballY + fake[1];
@@ -1069,7 +1104,7 @@ export class PlaySim {
         }
         return;
       }
-      if (q.hop && (this.handedOff || !run)) {
+      if (q.hop && (this.handedOff || !run || this.optionClosed)) {
         // hopping over in the pocket: hold the drop depth, the hop moves him sideways
         desired.set(q.i, [clamp((tx - q.x) * 3, -q.maxSpd, q.maxSpd) * 0.5, 0]);
         return;
@@ -1079,7 +1114,7 @@ export class PlaySim {
     }
     // AI quarterback
     this.steer(q, tx, ty, 0.75);
-    if (run && !run.pitch && !this.handedOff) return;
+    if (run && !run.pitch && !this.handedOff && !s.play.option) return;
     if (!this.aimAllowed) return;
     this.aiQbDecide(q, dt);
   }

@@ -30,6 +30,20 @@ export const ROUTES: Record<string, RouteDef> = {
   checkdown: { pts: [[2, -2], [4, -4]], end: 'stop' },
   shortIn: { pts: [[5, 0], [5.5, 12]], end: 'continue' },
   deepCross: { pts: [[14, 3], [20, 30]], end: 'continue' },
+  // the four "run or pass" routes
+  fly: { pts: [[45, 0]], end: 'continue' },
+  cross: { pts: [[5, 1.5], [7, 30]], end: 'continue' },
+  hook: { pts: [[8, 0], [6.5, 1]], end: 'stop' },
+};
+
+/** Routes cycled through in "run or pass" mode. */
+export const OPTION_ROUTES = ['fly', 'slant', 'cross', 'hook'] as const;
+
+/** RB lanes in "run or pass" mode: mesh beside the QB, then middle or off either tackle. */
+export const OPTION_LANES: Record<'middle' | 'left' | 'right', { name: string; path: [number, number][] }> = {
+  middle: { name: 'up the middle', path: [[-4.4, 0.9], [1, 0.6], [8, 0.6]] },
+  left: { name: 'off left tackle', path: [[-4.4, 0.9], [-0.5, -4.5], [6, -6.5]] },
+  right: { name: 'off right tackle', path: [[-4.4, 0.9], [-0.5, 5.5], [6, 7.5]] },
 };
 
 export interface FormationDef {
@@ -91,6 +105,8 @@ export interface PlayDef {
   drop: number; // QB drop depth from LOS
   rollout?: number; // QB rolls toward this y offset (+ = bottom)
   screenRelease?: boolean;
+  /** Run-or-pass: receivers run routes, the RB waits at the mesh for an optional hand-off. */
+  option?: boolean;
   risk: 1 | 2 | 3;
   desc: string;
 }
@@ -175,6 +191,27 @@ export const PLAYS: PlayDef[] = [
 ];
 
 export const PLAY_BY_ID: Record<string, PlayDef> = Object.fromEntries(PLAYS.map((p) => [p.id, p]));
+
+/**
+ * Builds a fresh "run or pass" play: every receiver gets a random fly, slant, cross or
+ * hook and the back gets a random lane. The hand-off window closes at run.mesh seconds.
+ */
+export function makeOptionPlay(pick: (n: number) => number): PlayDef {
+  const lanes = Object.keys(OPTION_LANES) as (keyof typeof OPTION_LANES)[];
+  const lane = lanes[pick(lanes.length)];
+  const r = () => OPTION_ROUTES[pick(OPTION_ROUTES.length)];
+  const routes: PlayDef['routes'] = { X: r(), Z: r(), SLOT: r(), TE: r() };
+  // keep at least one deep threat and one quick target so every snap has an answer
+  const vals = Object.values(routes);
+  if (!vals.includes('fly')) routes.X = 'fly';
+  if (!vals.includes('hook') && !vals.includes('slant')) routes.SLOT = 'slant';
+  return {
+    id: `option-${lane}`, name: `Run or Pass (${OPTION_LANES[lane].name})`, cat: 'short', formation: 'shotgun', drop: 6.5, risk: 1,
+    option: true, routes,
+    run: { carrier: 'RB', path: OPTION_LANES[lane].path, mesh: 1.05, qbFake: [-5.2, -0.2] },
+    desc: 'Hand it off or throw to a receiver.',
+  };
+}
 
 // ---------------- Defense ----------------
 
