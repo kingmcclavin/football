@@ -6,7 +6,8 @@ import { NO_INPUT, PASS_TUNE, type PlayInput } from '../game/sim';
 import { PLAYS, DEF_CALLS, type PlayCategory } from '../game/playbook';
 import { applyGameResult, completeWeekAfterUserGame, gameWeather, userGameThisWeek, ROUND_NAME } from '../league/season';
 import { recordWeekFinances } from '../league/frontoffice';
-import { careerRng, saveRng } from '../league/career';
+import { careerRng, saveRng, type Career } from '../league/career';
+import type { ScheduledGame } from '../core/types';
 import { clearLive, loadLive, saveLive } from '../save/storage';
 import { sfx, unlockAudio } from '../audio/sfx';
 import { playDiagram, defDiagram } from './playArt';
@@ -40,10 +41,10 @@ interface Ptr {
   ext: number;
 }
 
-export function GameScreen({ resume }: { resume: boolean }) {
+export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition?: { c: Career; game: ScheduledGame } }) {
   const app = useApp();
-  const c = app.career!;
-  const game = useMemo(() => userGameThisWeek(c), [c]);
+  const c = exhibition?.c ?? app.career!;
+  const game = useMemo(() => exhibition?.game ?? userGameThisWeek(c), [c, exhibition]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const matchRef = useRef<Match | null>(null);
@@ -71,7 +72,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
     (async () => {
       const weather = gameWeather(c, game);
       let snap: MatchSnapshot | null = null;
-      if (resume) {
+      if (resume && !exhibition) {
         snap = await loadLive<MatchSnapshot>(c.slot);
         if (snap && snap.gameId !== game.id) snap = null;
       }
@@ -130,7 +131,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
       // save resumable progress at play boundaries
       if (m.canSnapshot() && m.stage !== lastSavedStage.current && m.stage !== 'final') {
         lastSavedStage.current = m.stage;
-        saveLive(c.slot, m.snapshot()).catch(() => undefined);
+        if (!exhibition) saveLive(c.slot, m.snapshot()).catch(() => undefined);
       } else if (!m.canSnapshot()) lastSavedStage.current = '';
       raf = requestAnimationFrame(frame);
     };
@@ -337,6 +338,12 @@ export function GameScreen({ resume }: { resume: boolean }) {
     const m = matchRef.current!;
     if (finishing || !game) return;
     setFinishing(true);
+    if (exhibition) {
+      // nothing to record: back to the picker with the final score
+      const g = m.g;
+      app.replace('exhibition', { result: `${c.teams[game.away].abbr} ${g.score[1]} - ${g.score[0]} ${c.teams[game.home].abbr}` });
+      return;
+    }
     const box = m.finishBox();
     const rng = careerRng(c);
     applyGameResult(c, game, box, rng);
@@ -351,6 +358,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
 
   const quit = async () => {
     const m = matchRef.current!;
+    if (exhibition) return app.back();
     if (m.canSnapshot()) await saveLive(c.slot, m.snapshot());
     app.reset({ name: 'hub' });
   };
@@ -395,7 +403,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
           {m.stage === 'coin' && (
             <div className="center-msg">
               <h1>{c.teams[game.away].abbr} @ {c.teams[game.home].abbr}</h1>
-              <div className="small muted" style={{ marginBottom: 8 }}>{game.playoff ? ROUND_NAME[game.playoff] : `Week ${game.week}`} - {m.weather.toUpperCase()}</div>
+              <div className="small muted" style={{ marginBottom: 8 }}>{exhibition ? 'Exhibition' : game.playoff ? ROUND_NAME[game.playoff] : `Week ${game.week}`} - {m.weather.toUpperCase()}</div>
               <h2>COIN TOSS - CALL IT</h2>
               <div className="row" style={{ justifyContent: 'center' }}>
                 <Btn size="big" onClick={() => { unlockAudio(); m.callCoin('heads'); setTick((x) => x + 1); }}>Heads</Btn>
@@ -583,7 +591,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, showRoutes: !app.settings.showRoutes })}>Routes: {app.settings.showRoutes ? 'Shown' : 'Hidden'}</Btn>
                 </div>
                 <Btn kind="blue" wide onClick={() => { if (confirm('Simulate the rest of this game?')) { m.simulateRest(); togglePause(); setTick((x) => x + 1); } }}>Simulate Rest of Game</Btn>
-                <Btn kind="ghost" wide onClick={quit}>Save & Quit to Hub</Btn>
+                <Btn kind="ghost" wide onClick={quit}>{exhibition ? 'Quit Exhibition' : 'Save & Quit to Hub'}</Btn>
               </div>
               <div className="tiny muted" style={{ marginTop: 8 }}>Keyboard: W/S scoot, Shift or forward arrow burst, arrows aim, Space snap/throw/juke, Shift burst, X dive, E run, T timeout, P pause</div>
             </div>

@@ -10,7 +10,7 @@ import { potGrade } from '../league/players';
 export type ScreenName =
   | 'title' | 'new' | 'slots' | 'hub' | 'roster' | 'depth' | 'league' | 'schedule' | 'stats' | 'records'
   | 'office' | 'trades' | 'freeagents' | 'offseason' | 'pregame' | 'game' | 'postgame' | 'settings' | 'help'
-  | 'achievements' | 'box' | 'team';
+  | 'achievements' | 'box' | 'team' | 'exhibition';
 
 export interface Route {
   name: ScreenName;

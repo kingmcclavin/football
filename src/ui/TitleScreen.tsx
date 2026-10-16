@@ -101,14 +101,15 @@ export function TitleScreen() {
           ) : null}
           <div className="grid2" style={{ gap: 6 }}>
             <Btn wide onClick={() => app.go('slots', { mode: 'new' })}>New Career</Btn>
+            <Btn kind="green" wide onClick={() => app.go('exhibition')}>Exhibition</Btn>
             <Btn kind="blue" wide onClick={() => app.go('slots', { mode: 'load' })}>Load Career</Btn>
             <Btn kind="blue" wide disabled={!canVia} onClick={() => via('roster')}>Roster</Btn>
             <Btn kind="blue" wide disabled={!canVia} onClick={() => via('league')}>Standings</Btn>
             <Btn kind="blue" wide disabled={!canVia} onClick={() => via('schedule')}>Schedule</Btn>
             <Btn kind="blue" wide disabled={!canVia} onClick={() => via('stats')}>Stats</Btn>
             <Btn kind="blue" wide onClick={() => app.go('settings')}>Settings</Btn>
-            <Btn kind="blue" wide onClick={() => app.go('help')}>Help</Btn>
           </div>
+          <Btn kind="blue" wide onClick={() => app.go('help')}>Help</Btn>
           <div className="muted tiny center">Saves are stored on this device.</div>
         </div>
       </div>

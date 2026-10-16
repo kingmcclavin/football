@@ -18,6 +18,8 @@ import { FreeAgentsScreen } from './ui/FreeAgents';
 import { OffseasonScreen } from './ui/Offseason';
 import { PreGame, PostGame } from './ui/PreGame';
 import { GameScreen } from './ui/GameScreen';
+import { ExhibitionScreen } from './ui/Exhibition';
+import type { ScheduledGame } from './core/types';
 import { SettingsScreen } from './ui/Settings';
 import { HelpScreen } from './ui/Help';
 
@@ -164,10 +166,13 @@ export default function App() {
       screen = <PreGame />;
       break;
     case 'game':
-      screen = <GameScreen resume={!!p.resume} />;
+      screen = <GameScreen resume={!!p.resume} exhibition={p.exhibition as { c: Career; game: ScheduledGame } | undefined} />;
       break;
     case 'postgame':
       screen = <PostGame gameId={p.gameId as number} />;
+      break;
+    case 'exhibition':
+      screen = <ExhibitionScreen result={p.result as string | undefined} />;
       break;
     case 'settings':
       screen = <SettingsScreen />;
