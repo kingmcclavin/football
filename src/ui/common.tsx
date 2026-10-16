@@ -4,6 +4,7 @@ import type { Career } from '../league/career';
 import type { Settings } from '../save/settings';
 import { drawEmblem, SKINS, HAIR, shade } from '../render/sprites';
 import { sfx } from '../audio/sfx';
+import { portraitCanvas, portraitsReady } from '../render/assets';
 import { potGrade } from '../league/players';
 
 export type ScreenName =
@@ -153,9 +154,19 @@ export function TeamBadge({ team, size = 36 }: { team: Team; size?: number }) {
 /** Original procedural pixel portraits (head and shoulders in team colours). */
 export function Face({ player, team, size = 56 }: { player: { id: number; look: Player['look'] }; team?: Team; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const artOn = portraitsReady();
   useEffect(() => {
     const cv = ref.current;
     if (!cv) return;
+    const art = portraitCanvas('players', player.id * 7 + player.look.skin, team?.colors.primary ?? '#3fd35b', team?.colors.secondary ?? '#ff4fd8');
+    if (art) {
+      cv.width = art.width;
+      cv.height = art.height;
+      const c2 = cv.getContext('2d')!;
+      c2.clearRect(0, 0, cv.width, cv.height);
+      c2.drawImage(art, 0, 0);
+      return;
+    }
     const W = 20;
     const H = 24;
     cv.width = W;
@@ -219,8 +230,8 @@ export function Face({ player, team, size = 56 }: { player: { id: number; look: 
       px(8, 12, 4, 1, '#8a3b3b');
     }
     if (player.look.visor) px(5, 7, 10, 2, 'rgba(30,30,60,0.35)');
-  }, [player, team]);
-  return <canvas ref={ref} className="face" style={{ width: size, height: (size * 24) / 20 }} />;
+  }, [player, team, artOn]);
+  return <canvas ref={ref} className="face" style={{ width: size, height: (size * 4) / 3 }} />;
 }
 
 export function money(v: number) {

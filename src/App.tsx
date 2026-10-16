@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Career } from './league/career';
 import { loadSettings, saveSettings, type Settings } from './save/settings';
 import { saveCareer } from './save/storage';
+import { loadAssets, setAssetArt } from './render/assets';
 import { configureAudio, startMusic, stopMusic, unlockAudio } from './audio/sfx';
 import { Ctx, type AppCtx, type Route, type ScreenName } from './ui/common';
 import { TitleScreen, SlotsScreen } from './ui/TitleScreen';
@@ -56,6 +57,16 @@ export default function App() {
     setSettingsState(s);
     saveSettings(s);
     configureAudio(s);
+  }, []);
+
+  const [, setArtTick] = useState(0);
+  useEffect(() => {
+    setAssetArt(settings.artStyle !== 'original');
+    setArtTick((x) => x + 1);
+  }, [settings.artStyle]);
+  useEffect(() => {
+    // sprite sheets load in the background; screens re-render once they are ready
+    loadAssets().then(() => setArtTick((x) => x + 1));
   }, []);
 
   useEffect(() => {

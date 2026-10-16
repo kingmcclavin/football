@@ -51,6 +51,7 @@ export function SettingsScreen() {
         <Choice label="Passing aim" value={s.aimStyle} options={[{ v: 'pull', l: 'Pull back (slingshot)' }, { v: 'point', l: 'Point at target' }]} onChange={(v) => set({ aimStyle: v })} desc="Pull back: drag away from where you want to throw. Point: drag to the spot." />
         <Choice label="Defensive play calls" value={s.defenseMode} options={[{ v: 'call', l: 'I call them' }, { v: 'auto', l: 'Coordinator' }]} onChange={(v) => set({ defenseMode: v })} />
         <Choice label="Opponent drives" value={s.defenseView} options={[{ v: 'watch', l: 'Watch' }, { v: 'fast', l: 'Fast' }, { v: 'skip', l: 'Results only' }]} onChange={(v) => set({ defenseView: v })} />
+        <Choice label="Art style" value={s.artStyle} options={[{ v: 'sheet', l: 'Sprite sheets' }, { v: 'original', l: 'Original pixel art' }]} onChange={(v) => set({ artStyle: v })} desc="Sprite sheets use the supplied player, field and portrait art." />
         <Toggle label="Show routes before the snap" value={s.showRoutes} onChange={(v) => set({ showRoutes: v })} />
         <Toggle label="Left-handed controls" value={s.leftHanded} onChange={(v) => set({ leftHanded: v })} desc="Mirrors the on-screen buttons." />
         <Toggle label="Random front-office events" value={s.randomEvents} onChange={(v) => set({ randomEvents: v })} />

@@ -12,6 +12,7 @@ export interface Settings {
   haptics: boolean;
   tutorialSeen: boolean;
   leftHanded: boolean;
+  artStyle: 'sheet' | 'original';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
   haptics: true,
   tutorialSeen: false,
   leftHanded: false,
+  artStyle: 'sheet',
 };
 
 const KEY = 'gl-settings';

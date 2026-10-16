@@ -6,13 +6,18 @@ import type { Match } from '../game/match';
 import { FIELD_W, MID_Y, type Actor } from '../game/sim';
 import { ROUTES } from '../game/playbook';
 import { clockText, quarterText, other, type Side } from '../game/rules';
-import { getSprite, poseSize, drawBall, shade, SKINS, type SpriteColors } from './sprites';
+import { getSprite, poseSize, drawBall as drawPixelBall, shade, SKINS, type SpriteColors } from './sprites';
+import { animLength, artReady, assetFrame, ballFrame, fieldImage } from './assets';
 
-export const PPY = 6; // logical pixels per yard
-const WORLD_X0 = -14;
-const WORLD_X1 = 114;
-const WORLD_Y0 = -11;
-const WORLD_Y1 = FIELD_W + 9;
+// The field is drawn in a flattened side-on projection: 10 px per yard down the
+// field and ~3.3 px per yard across it, matching the field art.
+export const PXX = 10;
+export const PXY = 174 / FIELD_W;
+const ZPX = 4; // pixels per yard of height (ball flight)
+const WORLD_X0 = -15;
+const WORLD_X1 = 115;
+const WORLD_Y0 = -30 / PXY;
+const WORLD_Y1 = (237 - 30) / PXY;
 const HUD_H = 22;
 
 export interface AimView {
@@ -31,6 +36,15 @@ export interface ViewState {
 
 const FONT = '"Press Start 2P", monospace';
 
+function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, spin = 0) {
+  const f = ballFrame(spin);
+  if (f) {
+    ctx.drawImage(f.img, f.x, f.y, f.w, f.h, x - Math.floor(f.w / 2), y - Math.floor(f.h / 2), f.w, f.h);
+    return;
+  }
+  drawPixelBall(ctx, x, y, spin);
+}
+
 export class Renderer {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
@@ -46,6 +60,7 @@ export class Renderer {
   private crowdT = 0;
   private particles: { x: number; y: number; v: number }[] = [];
   private shake = 0;
+  private artField = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -55,7 +70,7 @@ export class Renderer {
   }
 
   resize(cssW: number, cssH: number, dpr: number) {
-    const target = cssW > cssH ? 250 : 300;
+    const target = cssW > cssH ? 262 : 320;
     this.scale = Math.max(1, Math.min(cssW, cssH) / target);
     this.W = Math.round(cssW / this.scale);
     this.H = Math.round(cssH / this.scale);
@@ -69,7 +84,7 @@ export class Renderer {
 
   /** CSS pixels per yard on screen. */
   get screenPPY() {
-    return PPY * (this.canvas.clientWidth / this.W);
+    return 6 * (this.canvas.clientWidth / this.W);
   }
 
   // ------------------------------------------------------------------ coordinates
@@ -85,18 +100,18 @@ export class Renderer {
   }
 
   sx(wx: number) {
-    return Math.round((wx - this.camX) * PPY + this.W / 2);
+    return Math.round((wx - this.camX) * PXX + this.W / 2);
   }
   sy(wy: number) {
-    return Math.round((wy - this.camY) * PPY + (this.H + HUD_H) / 2);
+    return Math.round((wy - this.camY) * PXY + (this.H + HUD_H) / 2);
   }
 
   /** Convert a screen (css px relative to canvas) point to sim coordinates. */
   screenToSim(m: Match, px: number, py: number): { x: number; y: number } {
     const lx = px / (this.canvas.clientWidth / this.W);
     const ly = py / (this.canvas.clientHeight / this.H);
-    const wx = (lx - this.W / 2) / PPY + this.camX;
-    const wy = (ly - (this.H + HUD_H) / 2) / PPY + this.camY;
+    const wx = (lx - this.W / 2) / PXX + this.camX;
+    const wy = (ly - (this.H + HUD_H) / 2) / PXY + this.camY;
     return { x: this.flipFor(m) ? 100 - wx : wx, y: wy };
   }
 
@@ -107,18 +122,99 @@ export class Renderer {
 
   // ------------------------------------------------------------------ field
 
-  private buildField(user: Team, opp: Team, weather: string) {
-    const key = `${user.id}-${opp.id}-${weather}`;
+  /** Field art: tint the placeholder end zones with team colours and label them. */
+  private buildArtField(user: Team, opp: Team, kind: string, home: Team): boolean {
+    const img = fieldImage(kind);
+    if (!img) return false;
+    const cv = document.createElement('canvas');
+    cv.width = img.width;
+    cv.height = img.height;
+    const c = cv.getContext('2d')!;
+    c.drawImage(img, 0, 0);
+    const X = (x: number) => Math.round((x - WORLD_X0) * PXX);
+    const Y = (y: number) => Math.round((y - WORLD_Y0) * PXY);
+    const tint = (x0: number, x1: number, t: Team) => {
+      const data = c.getImageData(x0, Y(0), x1 - x0, Y(FIELD_W) - Y(0));
+      const d = data.data;
+      const n = parseInt(t.colors.primary.slice(1), 16);
+      const tr = (n >> 16) & 255;
+      const tg = (n >> 8) & 255;
+      const tb = n & 255;
+      for (let p = 0; p < d.length; p += 4) {
+        const r = d[p];
+        const g = d[p + 1];
+        const b = d[p + 2];
+        // placeholder end zones are blue (or grey-blue when snowy / gold in the title game)
+        const bluish = b > r + 40 && b > g + 20;
+        if (!bluish) continue;
+        const f = (r + g + b) / 3 / 99;
+        d[p] = Math.min(255, tr * f);
+        d[p + 1] = Math.min(255, tg * f);
+        d[p + 2] = Math.min(255, tb * f);
+      }
+      c.putImageData(data, x0, Y(0));
+      c.save();
+      c.translate((x0 + x1) / 2, Y(MID_Y));
+      c.rotate(x0 < X(0) ? -Math.PI / 2 : Math.PI / 2);
+      c.font = `16px ${FONT}`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.scale(1, 0.62);
+      c.fillStyle = 'rgba(0,0,0,0.35)';
+      c.fillText(t.name.toUpperCase(), 2, 2);
+      c.fillStyle = t.colors.secondary === t.colors.primary ? '#ffffff' : t.colors.secondary;
+      c.fillText(t.name.toUpperCase(), 0, 0);
+      c.restore();
+    };
+    // sideline crowd and bench wear the home team's colours
+    const hexRgb = (h: string) => {
+      const n = parseInt(h.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    };
+    const P = hexRgb(home.colors.primary);
+    const S = hexRgb(home.colors.secondary);
+    const PD = P.map((v) => Math.round(v * 0.7));
+    for (const [y0, y1] of [[0, Y(0) - 1], [Y(FIELD_W) + 2, cv.height]] as [number, number][]) {
+      const data = c.getImageData(0, y0, cv.width, y1 - y0);
+      const d = data.data;
+      for (let p = 0; p < d.length; p += 4) {
+        const r = d[p];
+        const g = d[p + 1];
+        const b = d[p + 2];
+        let rep: number[] | null = null;
+        if (r === 0 && g === 255 && b === 0) rep = P;
+        else if (r === 255 && g === 0 && b === 255) rep = S;
+        else if (r === 0 && g === 255 && b === 255) rep = PD;
+        else if (r === 0 && g === 128 && b === 0) rep = PD;
+        if (rep) {
+          d[p] = rep[0];
+          d[p + 1] = rep[1];
+          d[p + 2] = rep[2];
+        }
+      }
+      c.putImageData(data, 0, y0);
+    }
+    tint(X(-10) + 2, X(0) - 1, user);
+    tint(X(100) + 2, X(110) - 1, opp);
+    this.field = cv;
+    this.artField = true;
+    return true;
+  }
+
+  private buildField(user: Team, opp: Team, weather: string, kind = 'standard', home: Team = user) {
+    const key = `${user.id}-${opp.id}-${home.id}-${weather}-${kind}-${artReady()}`;
     if (this.field && this.fieldKey === key) return;
     this.fieldKey = key;
-    const w = (WORLD_X1 - WORLD_X0) * PPY;
-    const h = (WORLD_Y1 - WORLD_Y0) * PPY;
+    this.artField = false;
+    if (artReady() && this.buildArtField(user, opp, kind, home)) return;
+    const w = Math.round((WORLD_X1 - WORLD_X0) * PXX);
+    const h = Math.round((WORLD_Y1 - WORLD_Y0) * PXY);
     const cv = document.createElement('canvas');
     cv.width = w;
     cv.height = h;
     const c = cv.getContext('2d')!;
-    const X = (x: number) => Math.round((x - WORLD_X0) * PPY);
-    const Y = (y: number) => Math.round((y - WORLD_Y0) * PPY);
+    const X = (x: number) => Math.round((x - WORLD_X0) * PXX);
+    const Y = (y: number) => Math.round((y - WORLD_Y0) * PXY);
     const snow = weather === 'snow';
     const g1 = snow ? '#8fb98a' : '#3f9a3a';
     const g2 = snow ? '#9cc497' : '#48a842';
@@ -142,14 +238,14 @@ export class Renderer {
     // end zones
     const ez = (x0: number, t: Team) => {
       c.fillStyle = t.colors.primary;
-      c.fillRect(X(x0), Y(0), 10 * PPY, FIELD_W * PPY);
+      c.fillRect(X(x0), Y(0), 10 * PXX, FIELD_W * PXY);
       c.fillStyle = shade(t.colors.primary, 0.82);
-      for (let k = -FIELD_W * PPY; k < 10 * PPY + FIELD_W * PPY; k += 8) {
+      for (let k = -FIELD_W * PXY; k < 10 * PXX + FIELD_W * PXY; k += 8) {
         c.save();
         c.beginPath();
-        c.rect(X(x0), Y(0), 10 * PPY, FIELD_W * PPY);
+        c.rect(X(x0), Y(0), 10 * PXX, FIELD_W * PXY);
         c.clip();
-        c.fillRect(X(x0) + k, Y(0), 3, FIELD_W * PPY);
+        c.fillRect(X(x0) + k, Y(0), 3, FIELD_W * PXY);
         c.restore();
       }
       c.save();
@@ -169,11 +265,11 @@ export class Renderer {
     ez(100, opp);
     // lines
     c.fillStyle = '#f4f4f4';
-    c.fillRect(X(-10), Y(0) - 1, 120 * PPY, 2);
-    c.fillRect(X(-10), Y(FIELD_W) - 1, 120 * PPY, 2);
-    c.fillRect(X(-10) - 1, Y(0), 2, FIELD_W * PPY);
-    c.fillRect(X(110) - 1, Y(0), 2, FIELD_W * PPY);
-    for (let x = 0; x <= 100; x += 5) c.fillRect(X(x), Y(0), x === 0 || x === 100 ? 2 : 1, FIELD_W * PPY);
+    c.fillRect(X(-10), Y(0) - 1, 120 * PXX, 2);
+    c.fillRect(X(-10), Y(FIELD_W) - 1, 120 * PXX, 2);
+    c.fillRect(X(-10) - 1, Y(0), 2, FIELD_W * PXY);
+    c.fillRect(X(110) - 1, Y(0), 2, FIELD_W * PXY);
+    for (let x = 0; x <= 100; x += 5) c.fillRect(X(x), Y(0), x === 0 || x === 100 ? 2 : 1, FIELD_W * PXY);
     // hash marks
     for (let x = 1; x < 100; x++) {
       if (x % 5 === 0) continue;
@@ -200,9 +296,9 @@ export class Renderer {
     // benches on the far sideline
     const bench = (x0: number, t: Team) => {
       c.fillStyle = shade(t.colors.primary, 0.8);
-      c.fillRect(X(x0), Y(FIELD_W + 4), 20 * PPY, 5);
+      c.fillRect(X(x0), Y(FIELD_W + 4), 20 * PXX, 5);
       c.fillStyle = t.colors.secondary;
-      c.fillRect(X(x0), Y(FIELD_W + 4) + 5, 20 * PPY, 1);
+      c.fillRect(X(x0), Y(FIELD_W + 4) + 5, 20 * PXX, 1);
     };
     bench(25, user);
     bench(55, opp);
@@ -217,7 +313,7 @@ export class Renderer {
     const t = Math.floor(this.crowdT * 4);
     for (let y = Math.max(top, HUD_H); y < bottom - 2; y += 3) {
       for (let x = 0; x < this.W; x += 3) {
-        const wx = Math.floor((x / PPY + this.camX) * 2);
+        const wx = Math.floor((x / PXX + this.camX) * 2);
         const hsh = (wx * 73856093) ^ (y * 19349663);
         const cIdx = Math.abs(hsh) % cols.length;
         const bob = (hsh + t) % 9 === 0 ? -1 : 0;
@@ -235,13 +331,14 @@ export class Renderer {
     this.crowdT += dt;
     const user = m.team(m.userSide);
     const opp = m.team(other(m.userSide));
-    this.buildField(user, opp, m.weather);
+    const kind = m.game.playoff === 'FINAL' ? 'championship' : m.weather === 'dome' ? 'roof2' : m.weather === 'snow' ? 'snowy' : m.weather === 'rain' ? 'rainy' : 'standard';
+    this.buildField(user, opp, m.weather, kind, m.team(0));
     this.updateCamera(m, dt);
     b.fillStyle = '#1b1f3a';
     b.fillRect(0, 0, this.W, this.H);
     // field
-    const fx = Math.round((this.camX - WORLD_X0) * PPY - this.W / 2);
-    const fy = Math.round((this.camY - WORLD_Y0) * PPY - (this.H + HUD_H) / 2);
+    const fx = Math.round((this.camX - WORLD_X0) * PXX - this.W / 2);
+    const fy = Math.round((this.camY - WORLD_Y0) * PXY - (this.H + HUD_H) / 2);
     let shx = 0;
     let shy = 0;
     if (this.shake > 0) {
@@ -250,7 +347,7 @@ export class Renderer {
       shy = Math.round((Math.random() - 0.5) * 3);
     }
     b.drawImage(this.field!, fx - shx, fy - shy, this.W, this.H, 0, 0, this.W, this.H);
-    this.drawCrowd(b, user, opp);
+    if (!this.artField) this.drawCrowd(b, user, opp);
     this.drawGoalposts(b);
     this.drawLines(m);
     if (view.portrait) {
@@ -300,10 +397,11 @@ export class Renderer {
       tx = wx + (g.possession === m.userSide ? 6 : -6);
       ty = m.ballY;
     }
-    const halfW = this.W / 2 / PPY;
-    const halfH = (this.H - HUD_H) / 2 / PPY;
+    const halfW = this.W / 2 / PXX;
+    const halfH = (this.H - HUD_H) / 2 / PXY;
     tx = clamp(tx, WORLD_X0 + halfW, WORLD_X1 - halfW);
-    ty = clamp(ty, WORLD_Y0 + halfH, WORLD_Y1 - halfH);
+    // if the whole field fits vertically, keep it centred
+    ty = halfH * 2 >= WORLD_Y1 - WORLD_Y0 ? (WORLD_Y0 + WORLD_Y1) / 2 : clamp(ty, WORLD_Y0 + halfH, WORLD_Y1 - halfH);
     const k = 1 - Math.pow(0.0008, dt);
     this.camX = lerp(this.camX, tx, k);
     this.camY = lerp(this.camY, ty, k * 0.8);
@@ -376,13 +474,13 @@ export class Renderer {
     for (const [x, y, isOff] of placeholders) {
       const wx = flip ? 100 - x : x;
       const t = isOff ? offT : defT;
-      const spr = getSprite('stand', this.colorsFor(t, (x * 7 + y) | 0, this.sideOf(m, t)));
+      const col = this.colorsFor(t, (x * 7 + y) | 0, this.sideOf(m, t));
       const sx = this.sx(wx);
       const sy = this.sy(y);
       b.fillStyle = 'rgba(0,0,0,0.25)';
       b.fillRect(sx - 3, sy, 7, 2);
       const facing = isOff !== flip ? 1 : -1;
-      this.blit(spr, sx, sy, facing);
+      this.drawPlayer('stand', 0, 'stand', col, sx, sy, facing);
     }
     const wx = flip ? 100 - los : los;
     drawBall(b, this.sx(wx), this.sy(m.ballY));
@@ -399,6 +497,60 @@ export class Renderer {
       b.scale(-1, 1);
       b.drawImage(spr, 0, 0);
       b.restore();
+    }
+  }
+
+  /** Draw a player with the sprite-sheet art when available, else the original pixel art. */
+  private drawPlayer(anim: string, frame: number, pose: string, col: SpriteColors, sx: number, sy: number, facing: number) {
+    const f = assetFrame(anim, frame, col);
+    if (f) {
+      const b = this.b;
+      const w = f.cv.width;
+      const h = f.cv.height;
+      if (facing >= 0) b.drawImage(f.cv, sx + f.dx, sy - h + 1);
+      else {
+        b.save();
+        b.translate(sx - f.dx, sy - h + 1);
+        b.scale(-1, 1);
+        b.drawImage(f.cv, 0, 0);
+        b.restore();
+      }
+      void w;
+      return;
+    }
+    this.blit(getSprite(pose, col), sx, sy, facing);
+  }
+
+  /** Pick the sheet animation and frame for an actor. */
+  private animFor(a: Actor, holding: boolean, isQbAiming: boolean): [string, number] {
+    const speed = Math.hypot(a.vx, a.vy);
+    const cyc = (anim: string, rate: number) => [anim, Math.floor(a.animT * rate) % Math.max(1, animLength(anim))] as [string, number];
+    switch (a.anim) {
+      case 'run':
+        if (isQbAiming) return cyc('qbWalk', 6);
+        if (holding) return a.jukeT > 0 ? cyc('stiffArm', 14) : cyc('runBall', 6 + speed * 1.1);
+        return cyc('run', 6 + speed * 1.1);
+      case 'down':
+        return [holding ? 'fallingBall' : 'falling', 1];
+      case 'dive':
+        return [holding ? 'diveBall' : 'dive', 2];
+      case 'throw':
+        return ['qbThrow', 0];
+      case 'block':
+        return cyc('wrestle', 3);
+      case 'celebrate':
+        return a.i % 2 ? cyc('taunt', 7) : cyc('celebrate', 4);
+      case 'kneel':
+        return ['kneel', 0];
+      case 'spike':
+        return ['spike', Math.min(2, Math.floor(a.animT * 6))];
+      case 'catch':
+        return [holding ? 'jumpCatchBall' : 'jumpCatch', Math.min(4, Math.floor(a.animT * 12))];
+      case 'kick':
+        return ['kick1', Math.min(2, Math.floor(a.animT * 8))];
+      default:
+        if (isQbAiming) return ['qbAim', 3];
+        return holding ? ['standBall', 0] : ['stand', 0];
     }
   }
 
@@ -445,7 +597,9 @@ export class Renderer {
       const t = a.side === 0 ? offT : defT;
       const col = this.colorsFor(t, a.sp.look.skin, this.sideOf(m, t));
       const pose = this.poseFor(a);
-      const spr = getSprite(pose, col);
+      const holding = sim.ball.state === 'held' && sim.ball.holder === a.i;
+      const aiming = holding && a.i === sim.qb && sim.carrier !== a.i && sim.setup.kind === 'scrimmage';
+      const [anim, frame] = this.animFor(a, holding, aiming);
       const wx = flip ? 100 - a.x : a.x;
       const sx = this.sx(wx);
       const sy = this.sy(a.y);
@@ -456,7 +610,7 @@ export class Renderer {
       b.fillRect(sx - Math.floor(pw / 2) + 1, sy - 1, pw - 2, 2);
       let facing = a.facing * (flip ? -1 : 1);
       if (sim.phase === 'presnap') facing = (a.side === 0) !== flip ? 1 : -1;
-      this.blit(spr, sx, sy, facing);
+      this.drawPlayer(anim, frame, pose, col, sx, sy, facing);
       // user-controlled marker
       if (a.i === sim.userActor && sim.phase !== 'over') {
         const blink = Math.floor(m.time * 4) % 2 === 0;
@@ -473,7 +627,7 @@ export class Renderer {
         }
       }
       // ball carrier ball
-      if (sim.ball.state === 'held' && sim.ball.holder === a.i && pose !== 'down') {
+      if (holding && pose !== 'down' && !artReady()) {
         drawBall(b, sx + (facing > 0 ? 3 : -3), sy - 7, 0);
       }
       // eligible receiver tags while aiming
@@ -498,7 +652,7 @@ export class Renderer {
       const sy = this.sy(ball.y);
       b.fillStyle = 'rgba(0,0,0,0.35)';
       b.fillRect(sx - 1, sy, 3, 1);
-      drawBall(b, sx, sy - Math.round(ball.z * PPY), Math.floor(m.time * 12));
+      drawBall(b, sx, sy - Math.round(ball.z * ZPX), Math.floor(m.time * 12));
       if (ball.state === 'air' && ball.kind === 'kick') {
         // landing marker for returns
         const lx = this.sx(flip ? 100 - ball.tx : ball.tx);
@@ -595,14 +749,14 @@ export class Renderer {
       const y = lerp(q.y, ty, u);
       const z = 2 * (1 - u) + 1.3 * u + 4 * peak * u * (1 - u);
       b.fillStyle = i % 2 ? 'rgba(255,255,255,0.9)' : 'rgba(255,227,74,0.9)';
-      b.fillRect(this.sx(x), this.sy(y) - Math.round(z * PPY), 1, 1);
+      b.fillRect(this.sx(x), this.sy(y) - Math.round(z * ZPX), 1, 1);
     }
     const sx = this.sx(tx);
     const sy = this.sy(ty);
-    const r = Math.max(3, Math.round(err * PPY));
+    const r = Math.max(3, Math.round(err * PXX));
     b.strokeStyle = 'rgba(255,227,74,0.95)';
     b.beginPath();
-    b.ellipse(sx + 0.5, sy + 0.5, r, Math.max(2, r * 0.7), 0, 0, Math.PI * 2);
+    b.ellipse(sx + 0.5, sy + 0.5, r, Math.max(2, err * PXY), 0, 0, Math.PI * 2);
     b.stroke();
     b.fillStyle = '#ffffff';
     b.fillRect(sx - 3, sy, 7, 1);
@@ -645,13 +799,13 @@ export class Renderer {
     const col = this.colorsFor(kt, 2, this.sideOf(m, kt));
     const hx = flip ? 100 - f.x0 : f.x0;
     const facing = flip ? -1 : 1;
-    this.blit(getSprite(u < 0.15 ? 'kick' : 'stand', col), this.sx(hx - facing * 1.2), this.sy(f.y0), facing);
-    this.blit(getSprite('kneel', col), this.sx(hx + facing * 0.6), this.sy(f.y0 + 1), facing);
+    this.drawPlayer('kick2', Math.min(4, Math.floor(f.t * 10)), u < 0.15 ? 'kick' : 'stand', col, this.sx(hx - facing * 1.2), this.sy(f.y0), facing);
+    this.drawPlayer('place', u < 0.05 ? 0 : 1, 'kneel', col, this.sx(hx + facing * 0.6), this.sy(f.y0 + 1), facing);
     const sx = this.sx(wx);
     const sy = this.sy(y);
     b.fillStyle = 'rgba(0,0,0,0.3)';
     b.fillRect(sx - 1, sy, 3, 1);
-    drawBall(b, sx, sy - Math.round(z * PPY), Math.floor(f.t * 14));
+    drawBall(b, sx, sy - Math.round(z * ZPX), Math.floor(f.t * 14));
     if (u >= 1) {
       b.font = `8px ${FONT}`;
       b.textAlign = 'center';

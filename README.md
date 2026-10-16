@@ -2,7 +2,13 @@
 
 A retro pixel-art American football career game that runs in the browser: iPhone and iPad Safari, plus desktop browsers. You play every snap on offense, call the defense, and kick with a two-tap meter. Between games you run the franchise: roster, depth chart, contracts, salary cap, draft, free agency, trades, staff, facilities, finances and job security. One career can run for as many seasons as you like.
 
-All teams, players, art, sound and text are original. The pixel sprites are drawn in code (`src/render/sprites.ts`), and the sound effects and music are synthesized at runtime (`src/audio/sfx.ts`). No external art or audio files are used.
+Teams, players, sound and text are original. Sound effects and music are synthesized at runtime (`src/audio/sfx.ts`).
+
+### Art
+
+By default the game uses the supplied sprite sheets (players, fields, portraits, ball; sheets credited to **Jordantas**) in `public/assets/`. They use colour keys that are swapped for team colours and skin tones at runtime (`src/render/assets.ts`). `scripts/extract-assets.py <dir>` regenerates the cut-up files and `src/render/atlas.json` from the original sheets.
+
+These sheets appear to be ripped from Retro Bowl, so they belong to its owner. Keep the repository and any deployment private unless you have permission, or switch Settings → Art style to "Original pixel art" (code-drawn sprites in `src/render/sprites.ts`) and delete `public/assets/` before publishing.
 
 ## Run it
 
