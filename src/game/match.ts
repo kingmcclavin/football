@@ -300,7 +300,7 @@ export class Match {
       // AI offense: snap after a short beat; speed depends on settings
       const view = this.settings.defenseView;
       this.simSpeed = view === 'fast' ? 2.2 : 1;
-      if (view === 'skip') {
+      if (view === 'skip' || this.autoDrive) {
         this.sim.runHeadless();
         this.resolveScrimmage();
         return;
@@ -360,7 +360,13 @@ export class Match {
     if (decision === 'fg') return this.aiFieldGoal();
     const play = pickPlay(g, decision, this.rng);
     this.pendingAi = { decision, play };
-    if (this.settings.defenseMode === 'call' && decision !== 'kneel' && decision !== 'spike') {
+    if (this.settings.defenseView === 'drive' && !this.autoDrive) {
+      // "sim drive" mode: the whole possession plays out at once
+      this.stage = 'defcall';
+      this.simDrive();
+      return;
+    }
+    if (this.settings.defenseMode === 'call' && !this.autoDrive && decision !== 'kneel' && decision !== 'spike') {
       this.stage = 'defcall';
       return;
     }
@@ -539,7 +545,7 @@ export class Match {
       const play = pickPlay({ ...g, toGo: 2, ballOn: 98 }, this.rng.chance(0.55) ? 'pass' : 'run', this.rng);
       this.pendingAi = { decision: 'pass', play };
       this.say('2-POINT TRY', `${this.team(side).abbr} go for two`, '#ffd23f');
-      if (this.settings.defenseMode === 'call') {
+      if (this.settings.defenseMode === 'call' && !this.autoDrive) {
         this.stage = 'defcall';
         return;
       }
@@ -876,6 +882,67 @@ export class Match {
     const b = Math.round(ballOn);
     if (b === 50) return '50';
     return b < 50 ? `${this.team(side).abbr} ${b}` : `${this.team(other(side)).abbr} ${100 - b}`;
+  }
+
+  // ------------------------------------------------------------------ simulate a defensive drive
+
+  /** True while simDrive() is fast-forwarding the opponent's possession. */
+  private autoDrive = false;
+
+  /** The opponent has the ball and nothing is mid-play: a drive can be simulated. */
+  canSimDrive() {
+    const g = this.g;
+    return g.possession !== this.userSide && (g.phase === 'scrimmage' || g.phase === 'pat') && (this.stage === 'defcall' || this.stage === 'result');
+  }
+
+  /**
+   * Play out the rest of the opponent's possession instantly (auto defense calls,
+   * headless plays), stopping when the user gets the ball back, at halftime or at the end.
+   */
+  simDrive() {
+    if (!this.canSimDrive()) return;
+    const g = this.g;
+    const opp = g.possession;
+    const startPts = [...g.score];
+    const startYds = this.box.team[opp].yds;
+    let plays = 0;
+    this.autoDrive = true;
+    try {
+      for (let guard = 0; guard < 400; guard++) {
+        if (this.stage === 'defcall') {
+          this.chooseDefense(null);
+          plays++;
+        } else if (this.stage === 'kickflight' && this.flightApply) {
+          const f = this.flightApply;
+          this.flightApply = null;
+          this.flight = null;
+          f();
+        } else if (this.stage === 'live' && this.sim && !this.sim.setup.userControls) {
+          // the AI's own kick or punt with the user not involved
+          this.sim.runHeadless();
+          if (this.returnKind) this.resolveReturn();
+          else this.resolveScrimmage();
+        } else if (this.stage === 'result') {
+          const stillTheirs = g.phase !== 'final' && (g.phase === 'scrimmage' || g.phase === 'pat') && g.possession === opp
+            && !(g.quarter === 3 && !this.halftimeShown) && !(g.quarter >= 5 && !this.otTossed);
+          if (!stillTheirs) break;
+          this.next();
+          // next() may hand straight to an AI decision (punt/FG) or a 'defcall'; count plays when they run
+          if (this.stage === 'result' || this.stage === 'kickflight') plays++;
+        } else break;
+      }
+    } finally {
+      this.autoDrive = false;
+    }
+    const abbr = this.team(opp).abbr;
+    const pts = g.score[opp] - startPts[opp];
+    const ours = g.score[this.userSide] - startPts[this.userSide];
+    const yds = this.box.team[opp].yds - startYds;
+    const punting = this.stage === 'live' && this.returnKind === 'punt';
+    const how = punting ? 'Punt' : ours > 0 ? (ours === 2 ? 'Safety!' : 'Defensive touchdown!') : pts >= 6 ? 'Touchdown' : pts === 3 ? 'Field goal' : this.banner?.text ? this.banner.text.replace(/!+$/, '').toLowerCase().replace(/^\w/, (ch) => ch.toUpperCase()) : 'Drive over';
+    const good = pts === 0;
+    this.say(`${abbr} DRIVE: ${how}`, `${plays} play${plays === 1 ? '' : 's'}, ${yds} yds${pts ? `, ${pts} pts` : ''}`, good ? '#7dff7a' : '#ff9d4d');
+    if (this.stage === 'result') this.resultT = 0;
   }
 
   // ------------------------------------------------------------------ simulate the rest

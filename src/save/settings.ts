@@ -6,7 +6,7 @@ export interface Settings {
   gameSpeed: number; // 0.8..1.25
   aimStyle: 'pull' | 'point';
   defenseMode: 'call' | 'auto';
-  defenseView: 'watch' | 'fast' | 'skip';
+  defenseView: 'watch' | 'fast' | 'skip' | 'drive';
   randomEvents: boolean;
   showRoutes: boolean;
   haptics: boolean;

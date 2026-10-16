@@ -108,6 +108,7 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
     let raf = 0;
     let last = performance.now();
     let uiKey = '';
+    let drawFailed = false;
     const frame = (t: number) => {
       const m = matchRef.current!;
       const dt = Math.min(0.05, (t - last) / 1000);
@@ -119,7 +120,13 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
         input.current = { ...input.current, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0 };
       }
       updateAimView(m);
-      r.draw(m, view.current, pausedRef.current ? 0 : dt);
+      try {
+        r.draw(m, view.current, pausedRef.current ? 0 : dt);
+      } catch (err) {
+        // never let one bad frame stop the game loop
+        if (!drawFailed) console.error('draw failed', err);
+        drawFailed = true;
+      }
       while (m.sounds.length) sfx(m.sounds.shift()!);
       const sim = m.sim;
       const mode = controlMode(m);
@@ -178,6 +185,7 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
       if (k === 'x' || k === 'c') input.current.dive = true;
       if (k === 'e' && mode === 'aim') input.current.tuck = true;
       if (k === 'k') input.current.kneel = true;
+      if (k === 'v' && m.canSimDrive()) m.simDrive();
       if (k === 'f') input.current.fairCatch = true;
       if (k === 't' && (m.stage === 'playcall' || m.stage === 'defcall' || m.stage === 'presnap')) {
         m.userTimeout();
@@ -462,6 +470,7 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
                   <div className="small muted">{quarterText(g.quarter)} {clockText(g.clock)} - {c.teams[m.userSide === 0 ? game.away : game.home].abbr} ball</div>
                 </div>
                 <div className="row wrap">
+                  <Btn size="small" kind="green" onClick={() => { sfx('click'); m.simDrive(); setTick((x) => x + 1); }}>Sim Drive</Btn>
                   <Btn size="small" kind="blue" onClick={() => { m.chooseDefense(null); setTick((x) => x + 1); }}>Auto (DC calls it)</Btn>
                   <Btn size="small" kind="ghost" disabled={!g.clockRunning || g.timeouts[m.userSide] === 0} onClick={() => { m.userTimeout(); setTick((x) => x + 1); }}>Timeout ({g.timeouts[m.userSide]})</Btn>
                 </div>
@@ -550,6 +559,9 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
           )}
 
           {m.stage === 'result' && <div className="hint">Tap to continue</div>}
+          {m.canSimDrive() && m.stage === 'result' && (
+            <button className="gbtn rect" style={{ [left ? 'left' : 'right']: 'calc(12px + var(--safe-right))', bottom: 'calc(14px + var(--safe-bottom))' }} onPointerDown={(e) => { e.stopPropagation(); sfx('click'); m.simDrive(); setTick((x) => x + 1); }}>SIM DRIVE</button>
+          )}
 
           {m.stage === 'halftime' && (
             <div className="center-msg">
@@ -586,14 +598,14 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, gameSpeed: app.settings.gameSpeed >= 1.2 ? 0.85 : app.settings.gameSpeed >= 1 ? 1.25 : 1 })}>Speed: {app.settings.gameSpeed >= 1.2 ? 'Fast' : app.settings.gameSpeed >= 1 ? 'Normal' : 'Slow'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, driveDir: app.settings.driveDir === 'left' ? 'right' : 'left' })}>Drive: {app.settings.driveDir === 'left' ? '◀ Left' : 'Right ▶'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseMode: app.settings.defenseMode === 'call' ? 'auto' : 'call' })}>Defense calls: {app.settings.defenseMode === 'call' ? 'You' : 'Auto'}</Btn>
-                  <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseView: app.settings.defenseView === 'watch' ? 'fast' : app.settings.defenseView === 'fast' ? 'skip' : 'watch' })}>Defense view: {app.settings.defenseView}</Btn>
+                  <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseView: app.settings.defenseView === 'watch' ? 'fast' : app.settings.defenseView === 'fast' ? 'skip' : app.settings.defenseView === 'skip' ? 'drive' : 'watch' })}>Opp. drives: {({ watch: 'Watch', fast: 'Fast', skip: 'Results', drive: 'Sim drive' } as const)[app.settings.defenseView]}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, aimStyle: app.settings.aimStyle === 'pull' ? 'point' : 'pull' })}>Aim: {app.settings.aimStyle === 'pull' ? 'Pull back' : 'Point'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, showRoutes: !app.settings.showRoutes })}>Routes: {app.settings.showRoutes ? 'Shown' : 'Hidden'}</Btn>
                 </div>
                 <Btn kind="blue" wide onClick={() => { if (confirm('Simulate the rest of this game?')) { m.simulateRest(); togglePause(); setTick((x) => x + 1); } }}>Simulate Rest of Game</Btn>
                 <Btn kind="ghost" wide onClick={quit}>{exhibition ? 'Quit Exhibition' : 'Save & Quit to Hub'}</Btn>
               </div>
-              <div className="tiny muted" style={{ marginTop: 8 }}>Keyboard: W/S scoot, Shift or forward arrow burst, arrows aim, Space snap/throw/juke, Shift burst, X dive, E run, T timeout, P pause</div>
+              <div className="tiny muted" style={{ marginTop: 8 }}>Keyboard: V sim defensive drive, W/S scoot, Shift or forward arrow burst, arrows aim, Space snap/throw/juke, Shift burst, X dive, E run, T timeout, P pause</div>
             </div>
           )}
         </div>

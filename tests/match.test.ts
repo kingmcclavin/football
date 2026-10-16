@@ -7,10 +7,12 @@ import { NO_INPUT } from '../src/game/sim';
 import { Rng } from '../src/core/rng';
 import { applyGameResult, userGameThisWeek } from '../src/league/season';
 
-function autoPlay(m: Match, rng: Rng, maxSteps = 200000) {
+function autoPlay(m: Match, rng: Rng, maxSteps = 200000, onStep?: (m: Match) => void) {
   let steps = 0;
   const offPlays = PLAYS.filter((p) => p.cat !== 'special');
   while (m.stage !== 'final' && steps++ < maxSteps) {
+    onStep?.(m);
+    if ((m.stage as string) === 'final') break;
     switch (m.stage) {
       case 'coin':
         m.callCoin('heads');
@@ -85,5 +87,37 @@ describe('match flow', () => {
       applyGameResult(c, game, box, rng);
       c.week++;
     }
+  });
+
+  it('sim drive plays out whole opponent possessions and hands the ball back', () => {
+    const c = createCareer({ coachName: 'T', teamId: 9, difficulty: 'pro', slot: 0, seed: 7 });
+    const rng = new Rng(5);
+    const game = userGameThisWeek(c)!;
+    const m = new Match(c, game, { ...DEFAULT_SETTINGS, defenseMode: 'call', defenseView: 'fast', quarterMinutes: 4 }, 'clear');
+    let drives = 0;
+    autoPlay(m, rng, 200000, (mm) => {
+      if (!mm.canSimDrive()) return;
+      mm.simDrive();
+      drives++;
+      // afterwards the opponent's possession is over (or we stopped at halftime / the end)
+      expect(mm.canSimDrive() && mm.g.quarter !== 3).toBe(false);
+      expect(mm.banner?.text).toMatch(/DRIVE/);
+    });
+    expect(m.stage).toBe('final');
+    expect(drives).toBeGreaterThan(3);
+    const box = m.finishBox();
+    expect(box.quarters[0].reduce((a, b) => a + b, 0)).toBe(box.hs);
+    expect(box.quarters[1].reduce((a, b) => a + b, 0)).toBe(box.as);
+  });
+
+  it("'Sim drive' setting simulates every opponent drive on its own", () => {
+    const c = createCareer({ coachName: 'T', teamId: 3, difficulty: 'pro', slot: 0, seed: 21 });
+    const rng = new Rng(8);
+    const game = userGameThisWeek(c)!;
+    const m = new Match(c, game, { ...DEFAULT_SETTINGS, defenseMode: 'call', defenseView: 'drive', quarterMinutes: 4 }, 'clear');
+    let defcalls = 0;
+    autoPlay(m, rng, 200000, (mm) => { if (mm.stage === 'defcall' && mm.g.phase === 'scrimmage') defcalls++; });
+    expect(m.stage).toBe('final');
+    expect(defcalls).toBe(0);
   });
 });

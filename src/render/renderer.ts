@@ -461,7 +461,7 @@ export class Renderer {
 
   /** Home team wears its colour jersey; the away team wears white with colour trim. */
   private colorsFor(t: Team, skin: number, side: 'home' | 'away'): SpriteColors {
-    const sk = SKINS[skin % SKINS.length];
+    const sk = SKINS[((skin % SKINS.length) + SKINS.length) % SKINS.length]; // positions near a goal line can make this negative
     if (side === 'away') {
       const trim = t.colors.primary === '#151515' ? t.colors.secondary : t.colors.primary;
       return { helmet: t.colors.helmet, jersey: '#eeeeee', trim, pants: t.colors.pants === '#ffffff' ? t.colors.secondary : t.colors.pants, skin: sk };
