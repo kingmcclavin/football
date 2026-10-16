@@ -23,13 +23,16 @@ const CATS: { id: PlayCategory; label: string }[] = [
   { id: 'special', label: 'Special' },
 ];
 
+/** Vertical drag (css px) that counts as one scoot swipe. */
+const SWIPE_PX = 22;
+
 interface Ptr {
   id: number;
   sx: number;
   sy: number;
   x: number;
   y: number;
-  role: 'aim' | 'stick' | 'none';
+  role: 'aim' | 'swipe' | 'none';
   t: number;
 }
 
@@ -52,7 +55,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
   const keys = useRef(new Set<string>());
   const sprintHeld = useRef(false);
   const kbAim = useRef<{ x: number; y: number } | null>(null);
-  const view = useRef<ViewState>({ aim: null, keyboardAim: null, joystick: null, portrait: false });
+  const view = useRef<ViewState>({ aim: null, keyboardAim: null, portrait: false });
   const lastSavedStage = useRef('');
   const settingsRef = useRef(app.settings);
   settingsRef.current = app.settings;
@@ -108,7 +111,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
         const inp = buildInput(m);
         m.update(dt, inp);
         // clear edge-triggered inputs
-        input.current = { ...input.current, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null };
+        input.current = { ...input.current, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0 };
       }
       updateAimView(m);
       r.draw(m, view.current, pausedRef.current ? 0 : dt);
@@ -163,6 +166,10 @@ export function GameScreen({ resume }: { resume: boolean }) {
         if (mode === 'carry') input.current.juke = true;
         if (mode === 'returnAir' && sim?.setup.kind === 'punt') input.current.fairCatch = true;
       }
+      if ((mode === 'carry' || mode === 'qbPocket') && !e.repeat) {
+        if (k === 'w' || k === 'arrowup') input.current.scoot -= 1;
+        if (k === 's' || k === 'arrowdown') input.current.scoot += 1;
+      }
       if (k === 'x' || k === 'c') input.current.dive = true;
       if (k === 'e' && mode === 'aim') input.current.tuck = true;
       if (k === 'k') input.current.kneel = true;
@@ -208,29 +215,9 @@ export function GameScreen({ resume }: { resume: boolean }) {
     return 'watch';
   }
 
-  function stickVector(): { x: number; y: number } | null {
-    for (const p of ptrs.current.values()) {
-      if (p.role !== 'stick') continue;
-      const dx = p.x - p.sx;
-      const dy = p.y - p.sy;
-      const d = Math.hypot(dx, dy);
-      if (d < 6) return null;
-      const s = Math.min(1, d / 45);
-      return { x: (dx / d) * s, y: (dy / d) * s };
-    }
-    return null;
-  }
-
   function buildInput(m: Match): PlayInput {
     const k = keys.current;
     const mode = controlMode(m);
-    let mx = 0;
-    let my = 0;
-    const arrowsMoveQB = mode !== 'aim';
-    if (k.has('w') || (arrowsMoveQB && k.has('arrowup'))) my -= 1;
-    if (k.has('s') || (arrowsMoveQB && k.has('arrowdown'))) my += 1;
-    if (k.has('a') || (arrowsMoveQB && k.has('arrowleft'))) mx -= 1;
-    if (k.has('d') || (arrowsMoveQB && k.has('arrowright'))) mx += 1;
     // keyboard reticle while aiming
     if (mode === 'aim' && m.sim) {
       if (!kbAim.current) kbAim.current = { x: m.sim.los + 10, y: m.sim.actors[m.sim.qb]?.y ?? 26 };
@@ -240,12 +227,8 @@ export function GameScreen({ resume }: { resume: boolean }) {
       if (k.has('arrowleft')) kbAim.current.x -= sp;
       if (k.has('arrowright')) kbAim.current.x += sp;
     } else if (mode !== 'qbPocket') kbAim.current = null;
-    let move: { x: number; y: number } | null = mx || my ? { x: mx, y: my } : null;
-    const stick = stickVector();
-    if (stick) move = stick;
-    let sprint = sprintHeld.current;
-    for (const p of ptrs.current.values()) if (p.role === 'stick' && Math.hypot(p.x - p.sx, p.y - p.sy) > 40) sprint = sprint || false;
-    return { ...input.current, move, sprint };
+    // runners go downfield on their own; swipes and W/S only scoot them over
+    return { ...input.current, move: null, sprint: sprintHeld.current || (settingsRef.current.driveDir === 'left' ? k.has('a') || k.has('arrowleft') : k.has('d') || k.has('arrowright')) };
   }
 
   function aimTarget(m: Match, p: Ptr): { x: number; y: number } | null {
@@ -257,16 +240,14 @@ export function GameScreen({ resume }: { resume: boolean }) {
     const rect = canvasRef.current!.getBoundingClientRect();
     if (settingsRef.current.aimStyle === 'point') return r.screenToSim(m, p.x - rect.left, p.y - rect.top);
     const k = 2.4 / r.screenPPY;
-    return { x: q.x + (p.sx - p.x) * k, y: q.y + (p.sy - p.y) * k };
+    return { x: q.x + (p.sx - p.x) * k * r.dirSign, y: q.y + (p.sy - p.y) * k };
   }
 
   function updateAimView(m: Match) {
     const sim = m.sim;
     view.current.aim = null;
-    view.current.joystick = null;
     view.current.keyboardAim = kbAim.current && controlMode(m) === 'aim' ? kbAim.current : null;
     if (!sim) return;
-    const rect = canvasRef.current?.getBoundingClientRect();
     for (const p of ptrs.current.values()) {
       if (p.role === 'aim') {
         const t = aimTarget(m, p);
@@ -276,12 +257,6 @@ export function GameScreen({ resume }: { resume: boolean }) {
           const err = (0.25 + d * 0.026) * (1.55 - q.sp.r.tha / 100) * 1.4;
           view.current.aim = { active: true, tx: t.x, ty: t.y, err };
         }
-      } else if (p.role === 'stick' && rect) {
-        const dx = p.x - p.sx;
-        const dy = p.y - p.sy;
-        const d = Math.hypot(dx, dy) || 1;
-        const s = Math.min(1, d / 45);
-        view.current.joystick = { x: p.sx - rect.left, y: p.sy - rect.top, dx: (dx / d) * s, dy: (dy / d) * s };
       }
     }
   }
@@ -299,9 +274,10 @@ export function GameScreen({ resume }: { resume: boolean }) {
     else if (m.stage === 'result') m.continueResult();
     else if (mode === 'aim') role = 'aim';
     else if (mode === 'carry' || mode === 'qbPocket') {
-      const hasStick = [...ptrs.current.values()].some((p) => p.role === 'stick');
-      if (hasStick) input.current.juke = true;
-      else role = 'stick';
+      // a second finger while swiping jukes
+      const swiping = [...ptrs.current.values()].some((p) => p.role === 'swipe');
+      if (swiping) input.current.juke = true;
+      else role = 'swipe';
     }
     ptrs.current.set(e.pointerId, { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, role, t: performance.now() });
   };
@@ -311,11 +287,24 @@ export function GameScreen({ resume }: { resume: boolean }) {
     p.x = e.clientX;
     p.y = e.clientY;
     const m = matchRef.current;
-    // an aim that starts before the QB can throw becomes a joystick once he tucks
+    // an aim that starts before the QB can throw becomes a swipe once he tucks
     if (m && p.role === 'aim' && controlMode(m) === 'carry') {
-      p.role = 'stick';
+      p.role = 'swipe';
       p.sx = p.x;
       p.sy = p.y;
+    }
+    // each vertical flick scoots the player one lane; keep dragging to keep scooting
+    if (p.role === 'swipe') {
+      const dx = p.x - p.sx;
+      const dy = p.y - p.sy;
+      if (Math.abs(dy) >= SWIPE_PX && Math.abs(dy) > Math.abs(dx) * 0.7) {
+        input.current.scoot += Math.sign(dy);
+        p.sx = p.x;
+        p.sy = p.y;
+        if (settingsRef.current.haptics) navigator.vibrate?.(8);
+      } else if (Math.abs(dx) > SWIPE_PX * 2) {
+        p.sx = p.x;
+      }
     }
   };
   const onUp = (e: React.PointerEvent) => {
@@ -384,7 +373,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
               <div className="small">
                 <p><b className="gold">Call a play</b> from the cards. Routes are drawn before the snap. Tap the field or SNAP to hike.</p>
                 <p><b className="gold">Pass:</b> drag back like a slingshot (away from your target) and release. Lead your receiver! Numbers show who is running a route.</p>
-                <p><b className="gold">Run:</b> drag anywhere to steer. JUKE right before contact, BURST to sprint, DIVE for extra yards.</p>
+                <p><b className="gold">Run:</b> your runner heads downfield on his own. Swipe up or down to scoot over a lane. JUKE right before contact, BURST to sprint, DIVE for extra yards.</p>
                 <p><b className="gold">Kick:</b> tap once to set aim in the green, again to set power.</p>
                 <p><b className="gold">Defense:</b> pick a call and watch your players react. Keyboard works too: Space, arrows, WASD, Shift.</p>
               </div>
@@ -505,7 +494,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
               {m.sim && m.sim.setup.kind !== 'scrimmage' && m.sim.carrier === m.sim.userActor && m.sim.actors[m.sim.carrier].x <= 0.5 && (
                 <button className="gbtn rect blue" style={{ left: '50%', transform: 'translateX(-50%)', bottom: 'calc(16px + var(--safe-bottom))' }} onPointerDown={(e) => { e.stopPropagation(); input.current.kneel = true; }}>TAKE A KNEE</button>
               )}
-              {m.g.plays < 6 && <div className="hint" style={{ bottom: 'calc(90px + var(--safe-bottom))' }}>Drag anywhere to steer</div>}
+              {m.g.plays < 6 && <div className="hint" style={{ bottom: 'calc(90px + var(--safe-bottom))' }}>Swipe up/down to scoot</div>}
             </>
           )}
           {m.stage === 'live' && mode === 'returnAir' && m.sim?.setup.kind === 'punt' && (
@@ -576,6 +565,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
                 <div className="grid2">
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, sound: !app.settings.sound })}>Sound: {app.settings.sound ? 'On' : 'Off'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, gameSpeed: app.settings.gameSpeed >= 1.2 ? 0.85 : app.settings.gameSpeed >= 1 ? 1.25 : 1 })}>Speed: {app.settings.gameSpeed >= 1.2 ? 'Fast' : app.settings.gameSpeed >= 1 ? 'Normal' : 'Slow'}</Btn>
+                  <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, driveDir: app.settings.driveDir === 'left' ? 'right' : 'left' })}>Drive: {app.settings.driveDir === 'left' ? '◀ Left' : 'Right ▶'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseMode: app.settings.defenseMode === 'call' ? 'auto' : 'call' })}>Defense calls: {app.settings.defenseMode === 'call' ? 'You' : 'Auto'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseView: app.settings.defenseView === 'watch' ? 'fast' : app.settings.defenseView === 'fast' ? 'skip' : 'watch' })}>Defense view: {app.settings.defenseView}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, aimStyle: app.settings.aimStyle === 'pull' ? 'point' : 'pull' })}>Aim: {app.settings.aimStyle === 'pull' ? 'Pull back' : 'Point'}</Btn>
@@ -584,7 +574,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
                 <Btn kind="blue" wide onClick={() => { if (confirm('Simulate the rest of this game?')) { m.simulateRest(); togglePause(); setTick((x) => x + 1); } }}>Simulate Rest of Game</Btn>
                 <Btn kind="ghost" wide onClick={quit}>Save & Quit to Hub</Btn>
               </div>
-              <div className="tiny muted" style={{ marginTop: 8 }}>Keyboard: WASD move, arrows aim, Space snap/throw/juke, Shift burst, X dive, E run, T timeout, P pause</div>
+              <div className="tiny muted" style={{ marginTop: 8 }}>Keyboard: W/S scoot, Shift or forward arrow burst, arrows aim, Space snap/throw/juke, Shift burst, X dive, E run, T timeout, P pause</div>
             </div>
           )}
         </div>

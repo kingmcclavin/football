@@ -17,7 +17,7 @@ const CONTENT: Record<T, ReactNode[]> = {
     <p key={2} style={{ margin: '0 0 6px' }}>After the snap your quarterback drops back and the receivers run their routes. Drag on the field to aim: by default you pull back like a slingshot, away from where you want the ball to go. A dotted arc and target ring show the throw. Release to throw.</p>,
     <p key={3} style={{ margin: '0 0 6px' }}>Lead your receivers: the ball takes time to arrive, so aim where they will be, not where they are. The ring grows with distance and pressure. Throws into tight coverage get broken up or intercepted. Your QB's arm strength limits distance and his accuracy sets how close the ball lands to your target.</p>,
     <p key={4} style={{ margin: '0 0 6px' }}>Under pressure? Press RUN to tuck the ball and scramble. You cannot throw once you cross the line of scrimmage.</p>,
-    <p key={5} style={{ margin: '0 0 6px' }}>On run plays the ball is handed off automatically. Then you control the runner: drag anywhere to steer (a joystick appears where your finger lands). The runner keeps moving forward on his own if you let go.</p>,
+    <p key={5} style={{ margin: '0 0 6px' }}>On run plays the ball is handed off automatically. Then you control the runner: he runs downfield on his own, and each swipe up or down scoots him over a lane. Keep dragging to keep sliding.</p>,
     <p key={6} style={{ margin: '0 0 6px' }}>JUKE makes a quick cut that can make a tackler miss, timed just before contact. BURST is a sprint that drains the stamina bar under your runner. DIVE ends the play falling forward for an extra yard (quarterbacks SLIDE to avoid hits). Follow your blockers and look for cutback lanes.</p>,
   ],
   defense: [
@@ -28,7 +28,7 @@ const CONTENT: Record<T, ReactNode[]> = {
   kicking: [
     <p key={0} style={{ margin: '0 0 6px' }}>Field goals, extra points, punts and kickoffs use a two-tap meter. First tap locks the aim as the marker sweeps left and right; stop it in the green zone. Second tap sets power as the bar fills. For field goals the white tick shows the power needed to reach the posts.</p>,
     <p key={1} style={{ margin: '0 0 6px' }}>Wind pushes kicks sideways (shown in the scoreboard). Longer kicks have a faster aim sweep. For punts and kickoffs, aim steers the ball toward a sideline.</p>,
-    <p key={2} style={{ margin: '0 0 6px' }}>When receiving, your returner catches the ball automatically, then you steer. Call FAIR CATCH on punts if coverage is close, or TAKE A KNEE in the end zone for a touchback.</p>,
+    <p key={2} style={{ margin: '0 0 6px' }}>When receiving, your returner catches the ball automatically, then he runs upfield and you swipe to scoot him between lanes. Call FAIR CATCH on punts if coverage is close, or TAKE A KNEE in the end zone for a touchback.</p>,
   ],
   rules: [
     <p key={0} style={{ margin: '0 0 6px' }}>Four quarters (length set in Settings). You have four downs to gain ten yards. Touchdowns are worth 6, then kick for 1 or go for 2 from the 2-yard line. Field goals are 3, safeties 2.</p>,
@@ -47,7 +47,7 @@ const CONTENT: Record<T, ReactNode[]> = {
   ],
   controls: [
     <h3 key={0}>Touch / mouse</h3>,
-    <p key={1} style={{ margin: '0 0 6px' }}>Tap the field or SNAP to hike. Drag to aim and release to throw. Drag to steer the runner; a second finger also jukes. Buttons: RUN, JUKE, DIVE/SLIDE, BURST (hold), FAIR CATCH, TAKE A KNEE. Tap to kick (twice). II pauses.</p>,
+    <p key={1} style={{ margin: '0 0 6px' }}>Tap the field or SNAP to hike. Drag to aim and release to throw. Swipe up/down to scoot the runner (or the QB in the pocket); a second finger jukes. Buttons: RUN, JUKE, DIVE/SLIDE, BURST (hold), FAIR CATCH, TAKE A KNEE. Tap to kick (twice). II pauses.</p>,
     <h3 key={2}>Keyboard</h3>,
     <p key={3} style={{ margin: '0 0 6px' }}>
                 <span className="kbd">Space</span>/<span className="kbd">Enter</span> snap, throw at the reticle, juke, kick, continue.{' '}

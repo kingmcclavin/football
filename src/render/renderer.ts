@@ -30,7 +30,6 @@ export interface AimView {
 export interface ViewState {
   aim: AimView | null;
   keyboardAim: { x: number; y: number } | null;
-  joystick: { x: number; y: number; dx: number; dy: number } | null;
   portrait: boolean;
 }
 
@@ -54,6 +53,16 @@ export class Renderer {
   H = 240;
   scale = 2;
   camX = 30;
+  /** Draw the field mirrored so the user's team drives toward the left. */
+  mirror = false;
+  /** +1 when the user drives right on screen, -1 when left. */
+  get dirSign() {
+    return this.mirror ? -1 : 1;
+  }
+  /** World x to the x the viewer sees (mirrored when driving left). */
+  private vx(wx: number) {
+    return this.mirror ? 100 - wx : wx;
+  }
   camY = MID_Y;
   private field: HTMLCanvasElement | null = null;
   private fieldKey = '';
@@ -100,7 +109,7 @@ export class Renderer {
   }
 
   sx(wx: number) {
-    return Math.round((wx - this.camX) * PXX + this.W / 2);
+    return Math.round((this.vx(wx) - this.vx(this.camX)) * PXX + this.W / 2);
   }
   sy(wy: number) {
     return Math.round((wy - this.camY) * PXY + (this.H + HUD_H) / 2);
@@ -110,7 +119,7 @@ export class Renderer {
   screenToSim(m: Match, px: number, py: number): { x: number; y: number } {
     const lx = px / (this.canvas.clientWidth / this.W);
     const ly = py / (this.canvas.clientHeight / this.H);
-    const wx = (lx - this.W / 2) / PXX + this.camX;
+    const wx = this.vx((lx - this.W / 2) / PXX + this.vx(this.camX));
     const wy = (ly - (this.H + HUD_H) / 2) / PXY + this.camY;
     return { x: this.flipFor(m) ? 100 - wx : wx, y: wy };
   }
@@ -201,10 +210,13 @@ export class Renderer {
     return true;
   }
 
-  private buildField(user: Team, opp: Team, weather: string, kind = 'standard', home: Team = user) {
-    const key = `${user.id}-${opp.id}-${home.id}-${weather}-${kind}-${artReady()}`;
+  private buildField(userT: Team, oppT: Team, weather: string, kind = 'standard', home: Team = userT, mirror = false) {
+    const key = `${userT.id}-${oppT.id}-${home.id}-${weather}-${kind}-${artReady()}-${mirror}`;
     if (this.field && this.fieldKey === key) return;
     this.fieldKey = key;
+    // the field image is laid out as the viewer sees it: left end zone first
+    const user = mirror ? oppT : userT;
+    const opp = mirror ? userT : oppT;
     this.artField = false;
     if (artReady() && this.buildArtField(user, opp, kind, home)) return;
     const w = Math.round((WORLD_X1 - WORLD_X0) * PXX);
@@ -313,7 +325,7 @@ export class Renderer {
     const t = Math.floor(this.crowdT * 4);
     for (let y = Math.max(top, HUD_H); y < bottom - 2; y += 3) {
       for (let x = 0; x < this.W; x += 3) {
-        const wx = Math.floor((x / PXX + this.camX) * 2);
+        const wx = Math.floor((x / PXX + this.vx(this.camX)) * 2);
         const hsh = (wx * 73856093) ^ (y * 19349663);
         const cIdx = Math.abs(hsh) % cols.length;
         const bob = (hsh + t) % 9 === 0 ? -1 : 0;
@@ -332,12 +344,13 @@ export class Renderer {
     const user = m.team(m.userSide);
     const opp = m.team(other(m.userSide));
     const kind = m.game.playoff === 'FINAL' ? 'championship' : m.weather === 'dome' ? 'roof2' : m.weather === 'snow' ? 'snowy' : m.weather === 'rain' ? 'rainy' : 'standard';
-    this.buildField(user, opp, m.weather, kind, m.team(0));
+    this.mirror = m.settings.driveDir === 'left';
+    this.buildField(user, opp, m.weather, kind, m.team(0), this.mirror);
     this.updateCamera(m, dt);
     b.fillStyle = '#1b1f3a';
     b.fillRect(0, 0, this.W, this.H);
     // field
-    const fx = Math.round((this.camX - WORLD_X0) * PXX - this.W / 2);
+    const fx = Math.round((this.vx(this.camX) - WORLD_X0) * PXX - this.W / 2);
     const fy = Math.round((this.camY - WORLD_Y0) * PXY - (this.H + HUD_H) / 2);
     let shx = 0;
     let shy = 0;
@@ -417,7 +430,7 @@ export class Renderer {
       b.fillStyle = 'rgba(0,0,0,0.25)';
       b.fillRect(x + 2, yTop, 2, yBot - yTop);
       b.fillStyle = '#f5d33b';
-      b.fillRect(x - 1, yMid - 1, gx < 0 ? -6 : 6, 3); // base support
+      b.fillRect(x - 1, yMid - 1, this.vx(gx) < 50 ? -6 : 6, 3); // base support
       b.fillRect(x, yTop, 2, yBot - yTop); // crossbar seen from above
       b.fillRect(x - 1, yTop - 12, 2, 13); // left upright (raised)
       b.fillRect(x - 1, yBot - 12, 2, 13);
@@ -479,7 +492,7 @@ export class Renderer {
       const sy = this.sy(y);
       b.fillStyle = 'rgba(0,0,0,0.25)';
       b.fillRect(sx - 3, sy, 7, 2);
-      const facing = isOff !== flip ? 1 : -1;
+      const facing = (isOff !== flip ? 1 : -1) * this.dirSign;
       this.drawPlayer('stand', 0, 'stand', col, sx, sy, facing);
     }
     const wx = flip ? 100 - los : los;
@@ -608,8 +621,8 @@ export class Renderer {
       b.fillStyle = 'rgba(0,0,0,0.28)';
       const [pw] = poseSize(pose);
       b.fillRect(sx - Math.floor(pw / 2) + 1, sy - 1, pw - 2, 2);
-      let facing = a.facing * (flip ? -1 : 1);
-      if (sim.phase === 'presnap') facing = (a.side === 0) !== flip ? 1 : -1;
+      let facing = a.facing * (flip ? -1 : 1) * this.dirSign;
+      if (sim.phase === 'presnap') facing = ((a.side === 0) !== flip ? 1 : -1) * this.dirSign;
       this.drawPlayer(anim, frame, pose, col, sx, sy, facing);
       // user-controlled marker
       if (a.i === sim.userActor && sim.phase !== 'over') {
@@ -678,7 +691,6 @@ export class Renderer {
       b.fillStyle = p.text.includes('INTERCEPT') || p.text.includes('FUMBLE') || p.text.includes('SACK') ? '#ff6b6b' : '#ffe34a';
       b.fillText(p.text, sx, sy);
     }
-    if (view.joystick) this.drawJoystick(view.joystick);
   }
 
   private receiverIndex(m: Match, a: Actor): number {
@@ -770,21 +782,6 @@ export class Renderer {
     }
   }
 
-  private drawJoystick(j: { x: number; y: number; dx: number; dy: number }) {
-    const b = this.b;
-    const k = this.W / this.canvas.clientWidth;
-    const cx = j.x * k;
-    const cy = j.y * k;
-    b.strokeStyle = 'rgba(255,255,255,0.35)';
-    b.beginPath();
-    b.arc(cx, cy, 16, 0, Math.PI * 2);
-    b.stroke();
-    b.fillStyle = 'rgba(255,255,255,0.5)';
-    b.beginPath();
-    b.arc(cx + j.dx * 14, cy + j.dy * 14, 5, 0, Math.PI * 2);
-    b.fill();
-  }
-
   private drawKickFlight(m: Match) {
     const b = this.b;
     const f = m.flight!;
@@ -799,8 +796,8 @@ export class Renderer {
     const col = this.colorsFor(kt, 2, this.sideOf(m, kt));
     const hx = flip ? 100 - f.x0 : f.x0;
     const facing = flip ? -1 : 1;
-    this.drawPlayer('kick2', Math.min(4, Math.floor(f.t * 10)), u < 0.15 ? 'kick' : 'stand', col, this.sx(hx - facing * 1.2), this.sy(f.y0), facing);
-    this.drawPlayer('place', u < 0.05 ? 0 : 1, 'kneel', col, this.sx(hx + facing * 0.6), this.sy(f.y0 + 1), facing);
+    this.drawPlayer('kick2', Math.min(4, Math.floor(f.t * 10)), u < 0.15 ? 'kick' : 'stand', col, this.sx(hx - facing * 1.2), this.sy(f.y0), facing * this.dirSign);
+    this.drawPlayer('place', u < 0.05 ? 0 : 1, 'kneel', col, this.sx(hx + facing * 0.6), this.sy(f.y0 + 1), facing * this.dirSign);
     const sx = this.sx(wx);
     const sy = this.sy(y);
     b.fillStyle = 'rgba(0,0,0,0.3)';

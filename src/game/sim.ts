@@ -41,8 +41,15 @@ export interface PlayInput {
   kneel: boolean;
   fairCatch: boolean;
   throwAt: { x: number; y: number } | null;
+  /** Lateral lane changes requested this frame (swipes), in +y / -y units. */
+  scoot: number;
 }
-export const NO_INPUT: PlayInput = { move: null, sprint: false, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null };
+export const NO_INPUT: PlayInput = { move: null, sprint: false, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0 };
+
+/** Real-time pace of live plays: below 1 plays out slower and more deliberately. */
+export const PACE = 0.74;
+/** Yards a single swipe scoots the user's player sideways. */
+export const SCOOT_YDS = 2.6;
 
 export interface AiSkill {
   off: number; // -1..1 adjustments to the offense's AI quality
@@ -110,6 +117,8 @@ export interface Actor {
   downT: number;
   tackleCd: number;
   facing: 1 | -1;
+  /** Lateral target set by swipes for the user's player. */
+  laneY: number | null;
   react: number;
   shedFrom: number;
   shedT: number;
@@ -197,7 +206,7 @@ function makeActor(i: number, side: 0 | 1, role: string, sp: SimPlayer, x: numbe
     maxSpd: 6.1 + r.spd * 0.034,
     accel: 9 + r.acc * 0.08,
     mode: 'idle', route: null, runPath: null, manTarget: -1, zone: null,
-    engaged: -1, stun: 0, downT: 0, tackleCd: 0, facing: side === OFF ? 1 : -1,
+    engaged: -1, stun: 0, downT: 0, tackleCd: 0, facing: side === OFF ? 1 : -1, laneY: null,
     react: 0.2, shedFrom: -1, shedT: 0, jukeT: 0, jukeCd: 0, jukeDir: 0, stamina: 1,
     anim: 'stand', animT: 0, hist: new Array(80).fill(0), histI: 0, readT: 0, biteT: 0, catchT: 0, zoneJam: 0, hx: x, hy: y, lunged: false, jukeGood: false,
   };
@@ -718,6 +727,7 @@ export class PlaySim {
     if (this.userActor < 0) return;
     const u = this.actors[this.userActor];
     const s = this.scrim;
+    if (inp.scoot) u.laneY = clamp((u.laneY ?? u.y) + inp.scoot * SCOOT_YDS, 0.8, FIELD_W - 0.8);
     // QB pre-throw
     if (s && u.i === this.qb && this.ball.holder === u.i && u.mode === 'qb') {
       if (inp.throwAt && this.canThrow()) {
@@ -826,6 +836,7 @@ export class PlaySim {
     this.ball.holder = a.i;
     this.carrier = a.i;
     this.carrierHow = how;
+    a.laneY = null;
     a.mode = 'carry';
     a.anim = 'run';
     this.carrierDir = a.side === OFF ? 1 : -1;
@@ -879,6 +890,7 @@ export class PlaySim {
     q.anim = 'throw';
     q.animT = 0;
     q.mode = 'idle';
+    q.facing = fx >= q.x ? 1 : -1;
     this.stat(q.sp.pid, 'pAtt', 1);
     // intended receiver: the eligible receiver projected closest to the landing point
     let best: Actor | null = null;
@@ -1041,6 +1053,13 @@ export class PlaySim {
         if (q.x > this.los + 0.4 || this.userTucked) {
           this.becomeRunner(q);
         }
+        return;
+      }
+      if (q.laneY !== null && (this.handedOff || !run)) {
+        // swipes slide the quarterback along his drop depth
+        ty = q.laneY;
+        if (Math.abs(q.laneY - q.y) < 0.2 && Math.hypot(q.vx, q.vy) < 0.5) q.laneY = null;
+        desired.set(q.i, [clamp((tx - q.x) * 3, -q.maxSpd, q.maxSpd) * 0.5, clamp((ty - q.y) * 6, -q.maxSpd * 0.8, q.maxSpd * 0.8)]);
         return;
       }
       this.steer(q, tx, ty, 0.75);
@@ -1379,16 +1398,25 @@ export class PlaySim {
     if (userCtl) {
       const m = this.userMove;
       sprint = m.sprint && c.stamina > 0.05;
-      let mx = dir * 0.7;
-      let my = 0;
-      if (m.active) {
-        mx = m.x;
-        my = m.y;
-        if (Math.abs(mx) < 0.15) mx = dir * 0.55;
-      }
-      const d = Math.hypot(mx, my) || 1;
       const sp = c.maxSpd * (sprint ? 0.98 : 0.9);
-      desired.set(c.i, [(mx / d) * sp, (my / d) * sp]);
+      if (m.active) {
+        // keyboard / analog fallback
+        let mx = m.x;
+        const my = m.y;
+        if (Math.abs(mx) < 0.15) mx = dir * 0.55;
+        const d = Math.hypot(mx, my) || 1;
+        desired.set(c.i, [(mx / d) * sp, (my / d) * sp]);
+      } else {
+        // runs downfield on its own; swipes scoot it over a lane
+        let vy = 0;
+        if (c.laneY !== null) {
+          const dy = c.laneY - c.y;
+          if (Math.abs(dy) < 0.15) c.laneY = null;
+          else vy = clamp(dy * 7, -sp * 0.95, sp * 0.95);
+        }
+        const vx = Math.sqrt(Math.max(0, sp * sp - vy * vy * 0.55));
+        desired.set(c.i, [dir * vx, vy]);
+      }
     } else {
       sprint = c.stamina > 0.2;
       // follow the designed run path until past the line
@@ -1751,7 +1779,11 @@ export class PlaySim {
     }
     a.x += a.vx * dt;
     a.y += a.vy * dt;
-    if (Math.abs(a.vx) > 0.3) a.facing = a.vx > 0 ? 1 : -1;
+    // a quarterback dropping back keeps his eyes (and throwing arm) downfield
+    const qbSettled = a.anim === 'throw' || (a.mode === 'qb' && this.ball.holder === a.i);
+    if (qbSettled) {
+      if (a.anim !== 'throw') a.facing = a.side === OFF ? 1 : -1;
+    } else if (Math.abs(a.vx) > 0.3) a.facing = a.vx > 0 ? 1 : -1;
     if (a.mode === 'down' || a.anim === 'throw' || a.anim === 'kick' || a.anim === 'block' || a.anim === 'catch') {
       if (a.anim === 'throw' && a.animT > 0.4) a.anim = 'stand';
       if (a.anim === 'kick' && a.animT > 0.6) a.anim = 'run';

@@ -13,6 +13,8 @@ export interface Settings {
   tutorialSeen: boolean;
   leftHanded: boolean;
   artStyle: 'sheet' | 'original';
+  /** Which way the user's team attacks on screen; it never switches during a game. */
+  driveDir: 'right' | 'left';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tutorialSeen: false,
   leftHanded: false,
   artStyle: 'sheet',
+  driveDir: 'right',
 };
 
 const KEY = 'gl-settings';

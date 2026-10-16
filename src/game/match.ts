@@ -15,7 +15,7 @@ import {
 } from './rules';
 import { decideOffense, fgMakeProb, maxFgRange, pickDefense, pickPlay, shouldKneel, wantsOnside, wantsTwoPoint, type OffDecision } from './ai';
 import { DEF_BY_ID, PLAY_BY_ID, type DefCall, type PlayDef } from './playbook';
-import { HASH_BOT, HASH_TOP, MID_Y, NO_INPUT, PlaySim, type PlayInput, type SimOutcome, type ReturnSetup } from './sim';
+import { HASH_BOT, HASH_TOP, MID_Y, NO_INPUT, PACE, PlaySim, type PlayInput, type SimOutcome, type ReturnSetup } from './sim';
 
 export type Stage =
   | 'coin' | 'playcall' | 'defcall' | 'presnap' | 'live' | 'result' | 'kick' | 'kickflight'
@@ -645,11 +645,11 @@ export class Match {
       return;
     }
     if (this.stage === 'live' && this.sim) {
-      const speed = this.simSpeed * this.settings.gameSpeed;
+      const speed = this.simSpeed * this.settings.gameSpeed * PACE;
       const steps = Math.max(1, Math.ceil((dt * speed) / (1 / 60)));
       const sub = (dt * speed) / steps;
       for (let i = 0; i < steps; i++) {
-        this.sim.step(sub, i === 0 ? input : { ...input, juke: false, dive: false, tuck: false, throwAt: null, kneel: false, fairCatch: false });
+        this.sim.step(sub, i === 0 ? input : { ...input, juke: false, dive: false, tuck: false, throwAt: null, kneel: false, fairCatch: false, scoot: 0 });
         this.collectSimSounds();
         if (this.sim.finished) break;
       }
