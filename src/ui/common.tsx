@@ -54,7 +54,7 @@ export function Btn(p: { children: ReactNode; onClick?: () => void; kind?: 'gold
 
 export function Panel(p: { title?: string; children: ReactNode; dark?: boolean; className?: string }) {
   return (
-    <div className={`panel ${p.dark ? 'dark' : ''} ${p.className ?? ''}`} style={p.title ? { paddingTop: 16 } : undefined}>
+    <div className={`panel ${p.dark ? 'dark' : ''} ${p.className ?? ''}`} style={p.title ? { paddingTop: 14, marginTop: 6 } : undefined}>
       {p.title && <div className="ptitle">{p.title}</div>}
       {p.children}
     </div>

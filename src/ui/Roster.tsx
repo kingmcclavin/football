@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
+import { Paged, PagedTable } from './paged';
 import { Btn, Face, Modal, Ovr, Panel, Tabs, TeamBadge, TopBar, useApp, money, Bar, PotBadge, Empty } from './common';
 import { POSITIONS, RATING_LABELS, type Player, type Pos, type RatingKey, type StatLine } from '../core/types';
-import { capSpace, payroll, playerMap, SALARY_CAP, teamName, teamPlayers, TRADE_DEADLINE_WEEK, type Career } from '../league/career';
+import { capSpace, payroll, playerMap, teamName, teamPlayers, TRADE_DEADLINE_WEEK, type Career } from '../league/career';
 import { OVR_WEIGHTS, fullName, potGrade, STARTERS, MIN_ROSTER } from '../league/players';
 import { contractDemand, releasePlayer, willResign } from '../league/transactions';
 import { trainPlayer } from '../league/frontoffice';
@@ -34,6 +35,7 @@ function keyRatings(pos: Pos): RatingKey[] {
 export function PlayerModal({ p, onClose, mode = 'own' }: { p: Player; onClose: () => void; mode?: 'own' | 'view' | 'prospect' }) {
   const app = useApp();
   const c = app.career!;
+  const [tab, setTab] = useState<'ratings' | 'info' | 'stats'>('ratings');
   const [confirmRelease, setConfirmRelease] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const team = p.teamId >= 0 ? c.teams[p.teamId] : undefined;
@@ -48,136 +50,130 @@ export function PlayerModal({ p, onClose, mode = 'own' }: { p: Player; onClose: 
   }, [p]);
   return (
     <Modal onClose={onClose}>
-      <div className="row">
-        <Face player={p} team={team} size={64} />
-        <div className="grow">
-          <div className="pixel" style={{ fontSize: 11 }}>{fullName(p)}</div>
-          <div className="small">
-            #{p.num} {p.pos} - Age {p.age} - {team ? team.abbr : p.teamId === -3 ? 'Prospect' : 'Free agent'} {p.rookie && <span className="badge rookie">ROOKIE</span>}
-          </div>
-          <div className="small muted">{p.college}{p.draft ? ` - Drafted ${p.draft.year} R${p.draft.round} #${p.draft.pick}` : ''}</div>
-          {p.injury && <div className="small red">{p.injury.desc} - out {p.injury.weeks} wk</div>}
-        </div>
-        <div className="col" style={{ alignItems: 'flex-end' }}>
-          <Ovr v={known ? p.ovr : '??'} />
-          <span className="tiny">POT {known ? potGrade(p.pot) : '?'}</span>
-        </div>
-      </div>
-      <div className="grid2" style={{ marginTop: 10 }}>
-        <div>
-          <h3>Ratings</h3>
-          {keyRatings(p.pos).slice(0, 9).map((k) => (
-            <div key={k} className="spread small" style={{ gap: 6 }}>
-              <span style={{ width: 82 }}>{RATING_LABELS[k]}</span>
-              <div className="grow"><Bar v={known ? p.r[k] : 50} color={known ? undefined : '#555'} /></div>
-              <span style={{ width: 24, textAlign: 'right' }}>{known ? p.r[k] : '?'}</span>
+      <div className="col" style={{ gap: 6, height: 'min(600px, calc(100dvh - 40px))' }}>
+        <div className="row">
+          <Face player={p} team={team} size={44} />
+          <div className="grow" style={{ minWidth: 0 }}>
+            <div className="pixel" style={{ fontSize: 10 }}>{fullName(p)}</div>
+            <div className="small">
+              #{p.num} {p.pos} - Age {p.age} - {team ? team.abbr : p.teamId === -3 ? 'Prospect' : 'Free agent'} {p.rookie && <span className="badge rookie">R</span>}
             </div>
-          ))}
-        </div>
-        <div>
-          <h3>Status</h3>
-          <div className="spread small"><span>Morale</span><span>{Math.round(p.morale)}</span></div>
-          <Bar v={p.morale} max={100} color="#ff9d4d" />
-          <div className="spread small"><span>Condition</span><span>{Math.round(p.cond)}%</span></div>
-          <Bar v={p.cond} max={100} color="#8fe3ff" />
-          <div className="spread small" style={{ marginTop: 6 }}><span>Contract</span><span>{money(p.contract.salary)} x {Math.max(0, p.contract.years)} yr</span></div>
-          <div className="spread small"><span>Development XP</span><span>{p.xp.toFixed(1)}</span></div>
-          {p.awards.length > 0 && <div className="small gold" style={{ marginTop: 6 }}>{p.awards.join(', ')}</div>}
-        </div>
-      </div>
-      <h3 style={{ marginTop: 10 }}>This season</h3>
-      <div className="small">{statSummary(p, p.season)}</div>
-      {p.history.length > 0 && (
-        <>
-          <h3 style={{ marginTop: 8 }}>Career</h3>
-          <div className="small">{career.gp} games - {statSummary(p, { ...p.season, ...career } as StatLine)}</div>
-          <div className="tablewrap" style={{ marginTop: 4 }}>
-            <table className="t">
-              <thead>
-                <tr><th>Year</th><th>Team</th><th>OVR</th><th>Stats</th></tr>
-              </thead>
-              <tbody>
-                {[...p.history].reverse().slice(0, 8).map((h) => (
-                  <tr key={h.year}>
-                    <td>{h.year}</td>
-                    <td>{c.teams[h.teamId]?.abbr ?? '-'}</td>
-                    <td>{h.ovr}</td>
-                    <td className="tiny">{statSummary(p, h.stats)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {p.injury && <div className="tiny red">{p.injury.desc} - out {p.injury.weeks} wk</div>}
           </div>
-        </>
-      )}
-      {own && (
-        <div className="row wrap" style={{ marginTop: 12 }}>
-          <Btn
-            size="small"
-            disabled={c.cc < 2 || p.ovr >= p.pot}
-            onClick={async () => {
-              const err = trainPlayer(c, p.id);
-              setMsg(err ?? `${p.last} improved through extra coaching.`);
-              await app.persist();
-              app.refresh();
-            }}
-          >
-            Private Coaching (2 CC)
-          </Btn>
-          {p.contract.years === 1 && demand && c.phase !== 'offseason' && (
-            <Btn
-              size="small"
-              kind="green"
-              disabled={!willResign(c, p) || capSpace(c, c.userTeam) < demand.salary - p.contract.salary}
-              onClick={async () => {
-                p.contract = { salary: demand.salary, years: demand.years + 1 };
-                p.morale = Math.min(100, p.morale + 8);
-                setMsg(`${p.last} signed an extension: ${demand.years} more years at ${money(demand.salary)}.`);
-                await app.persist();
-                app.refresh();
-              }}
-            >
-              Extend ({demand.years}y {money(demand.salary)})
-            </Btn>
+          <div className="col" style={{ alignItems: 'flex-end', gap: 2 }}>
+            <Ovr v={known ? p.ovr : '??'} />
+            <span className="tiny">POT {known ? potGrade(p.pot) : '?'}</span>
+          </div>
+        </div>
+        <Tabs tabs={[{ id: 'ratings', label: 'Ratings' }, { id: 'info', label: 'Info' }, { id: 'stats', label: 'Stats' }]} value={tab} onChange={setTab} />
+        <div className="fill" style={{ overflow: 'hidden' }}>
+          {tab === 'ratings' && (
+            <div className="col" style={{ gap: 2 }}>
+              {keyRatings(p.pos).slice(0, 9).map((k) => (
+                <div key={k} className="spread small" style={{ gap: 6 }}>
+                  <span style={{ width: 78 }}>{RATING_LABELS[k]}</span>
+                  <div className="grow"><Bar v={known ? p.r[k] : 50} color={known ? undefined : '#555'} /></div>
+                  <span style={{ width: 22, textAlign: 'right' }}>{known ? p.r[k] : '?'}</span>
+                </div>
+              ))}
+            </div>
           )}
-          <Btn size="small" kind="red" onClick={() => setConfirmRelease(true)}>Release</Btn>
+          {tab === 'info' && (
+            <div className="col" style={{ gap: 3 }}>
+              <div className="spread small"><span>Morale</span><span>{Math.round(p.morale)}</span></div>
+              <Bar v={p.morale} max={100} color="#ff9d4d" />
+              <div className="spread small"><span>Condition</span><span>{Math.round(p.cond)}%</span></div>
+              <Bar v={p.cond} max={100} color="#8fe3ff" />
+              <div className="spread small"><span>Contract</span><span>{money(p.contract.salary)} x {Math.max(0, p.contract.years)} yr</span></div>
+              <div className="spread small"><span>Development XP</span><span>{p.xp.toFixed(1)}</span></div>
+              <div className="spread small"><span>College</span><span>{p.college}</span></div>
+              {p.draft && <div className="spread small"><span>Drafted</span><span>{p.draft.year} R{p.draft.round} #{p.draft.pick}</span></div>}
+              {p.awards.length > 0 && <div className="small gold">{p.awards.join(', ')}</div>}
+            </div>
+          )}
+          {tab === 'stats' && (
+            <div className="col" style={{ gap: 4 }}>
+              <div className="small"><b>{c.year}:</b> {statSummary(p, p.season)}</div>
+              {p.history.length > 0 && <div className="small"><b>Career ({career.gp} g):</b> {statSummary(p, { ...p.season, ...career } as StatLine)}</div>}
+              <Paged
+                resetKey={p.id}
+                items={[...p.history].reverse().map((h) => (
+                  <div key={h.year} className="tiny" style={{ borderBottom: '1px solid rgba(255,255,255,0.12)', padding: '2px 0' }}>
+                    <b>{h.year}</b> {c.teams[h.teamId]?.abbr ?? '-'} ({h.ovr}) {statSummary(p, h.stats)}
+                  </div>
+                ))}
+              />
+            </div>
+          )}
         </div>
-      )}
-      {own && p.contract.years === 1 && !willResign(c, p) && <div className="small red">He is unhappy and refuses to discuss an extension.</div>}
-      {msg && <div className="small gold" style={{ marginTop: 6 }}>{msg}</div>}
-      {confirmRelease && (
-        <div className="panel dark" style={{ marginTop: 10 }}>
-          <div>Release {fullName(p)}? Half of his {money(p.contract.salary)} salary stays on the cap this season as dead money.</div>
-          <div className="row" style={{ marginTop: 6 }}>
-            <Btn
-              kind="red"
-              size="small"
-              onClick={async () => {
-                if (c.teams[c.userTeam].roster.length <= MIN_ROSTER) {
-                  setMsg(`You need at least ${MIN_ROSTER} players.`);
-                  setConfirmRelease(false);
-                  return;
-                }
-                releasePlayer(c, p);
-                await app.persist();
-                app.refresh();
-                onClose();
-              }}
-            >
-              Release
-            </Btn>
-            <Btn kind="blue" size="small" onClick={() => setConfirmRelease(false)}>Cancel</Btn>
+        {msg && <div className="small gold">{msg}</div>}
+        {confirmRelease ? (
+          <div className="panel dark">
+            <div className="small">Release {fullName(p)}? Half of his {money(p.contract.salary)} salary stays on the cap as dead money.</div>
+            <div className="row" style={{ marginTop: 4 }}>
+              <Btn
+                kind="red"
+                size="small"
+                onClick={async () => {
+                  if (c.teams[c.userTeam].roster.length <= MIN_ROSTER) {
+                    setMsg(`You need at least ${MIN_ROSTER} players.`);
+                    setConfirmRelease(false);
+                    return;
+                  }
+                  releasePlayer(c, p);
+                  await app.persist();
+                  app.refresh();
+                  onClose();
+                }}
+              >
+                Release
+              </Btn>
+              <Btn kind="blue" size="small" onClick={() => setConfirmRelease(false)}>Cancel</Btn>
+            </div>
           </div>
-        </div>
-      )}
-      <div style={{ marginTop: 12 }}>
-        <Btn kind="blue" onClick={onClose}>Close</Btn>
+        ) : (
+          <div className="row wrap" style={{ gap: 5 }}>
+            {own && (
+              <Btn
+                size="small"
+                disabled={c.cc < 2 || p.ovr >= p.pot}
+                onClick={async () => {
+                  const err = trainPlayer(c, p.id);
+                  setMsg(err ?? `${p.last} improved through extra coaching.`);
+                  await app.persist();
+                  app.refresh();
+                }}
+              >
+                Coach (2 CC)
+              </Btn>
+            )}
+            {own && p.contract.years === 1 && demand && c.phase !== 'offseason' && (
+              <Btn
+                size="small"
+                kind="green"
+                disabled={!willResign(c, p) || capSpace(c, c.userTeam) < demand.salary - p.contract.salary}
+                onClick={async () => {
+                  p.contract = { salary: demand.salary, years: demand.years + 1 };
+                  p.morale = Math.min(100, p.morale + 8);
+                  setMsg(`${p.last} extended: ${demand.years} more years at ${money(demand.salary)}.`);
+                  await app.persist();
+                  app.refresh();
+                }}
+              >
+                Extend {demand.years}y {money(demand.salary)}
+              </Btn>
+            )}
+            {own && <Btn size="small" kind="red" onClick={() => setConfirmRelease(true)}>Release</Btn>}
+            <span className="grow" />
+            <Btn size="small" kind="blue" onClick={onClose}>Close</Btn>
+          </div>
+        )}
       </div>
     </Modal>
   );
 }
 
-export function PlayerTable({ players, onPick, showTeam, c, sortable = true, extra }: { players: Player[]; onPick: (p: Player) => void; showTeam?: boolean; c: Career; sortable?: boolean; extra?: (p: Player) => React.ReactNode }) {
+export function PlayerTable({ players, onPick, showTeam, c, sortable = true, extra, resetKey, noContract }: { players: Player[]; onPick: (p: Player) => void; showTeam?: boolean; c: Career; sortable?: boolean; extra?: (p: Player) => React.ReactNode; resetKey?: unknown; noContract?: boolean }) {
   const [sort, setSort] = useState<'pos' | 'ovr' | 'age' | 'sal' | 'pot'>('pos');
   const order = [...players].sort((a, b) => {
     if (sort === 'ovr') return b.ovr - a.ovr;
@@ -192,39 +188,48 @@ export function PlayerTable({ players, onPick, showTeam, c, sortable = true, ext
     </th>
   );
   return (
-    <div className="tablewrap">
-      <table className="t">
-        <thead>
-          <tr>
-            {th('pos', 'POS')}
-            <th>NAME</th>
-            {showTeam && <th>TM</th>}
-            {th('age', 'AGE', 'num')}
-            {th('ovr', 'OVR', 'num')}
-            {th('pot', 'POT', 'num')}
-            <th className="num">MOR</th>
-            {th('sal', 'CONTRACT', 'num')}
-            {extra && <th />}
-          </tr>
-        </thead>
-        <tbody>
-          {order.map((p) => (
-            <tr key={p.id} className="click" onClick={() => onPick(p)}>
-              <td>{p.pos}</td>
-              <td>
-                {p.first[0]}. {p.last} {p.injury && <span className="badge inj">{p.injury.desc === 'Suspended' ? 'SUS' : `INJ ${p.injury.weeks}`}</span>} {p.rookie && <span className="badge rookie">R</span>}
-              </td>
-              {showTeam && <td>{c.teams[p.teamId]?.abbr ?? 'FA'}</td>}
-              <td className="num">{p.age}</td>
-              <td className="num"><Ovr v={p.ovr} /></td>
-              <td className="num"><PotBadge p={p} /></td>
-              <td className="num" style={{ color: p.morale > 70 ? 'var(--green)' : p.morale < 40 ? 'var(--red)' : undefined }}>{Math.round(p.morale)}</td>
-              <td className="num">{money(p.contract.salary)}/{Math.max(0, p.contract.years)}y</td>
-              {extra && <td onClick={(e) => e.stopPropagation()}>{extra(p)}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <PagedTable
+      rows={order}
+      rowKey={(p) => p.id}
+      resetKey={`${String(resetKey)}|${sort}`}
+      head={
+        <tr>
+          {th('pos', 'POS')}
+          <th>NAME</th>
+          {showTeam && <th>TM</th>}
+          {th('age', 'AGE', 'num')}
+          {th('ovr', 'OVR', 'num')}
+          {th('pot', 'POT', 'num')}
+          <th className="num wide-only">MOR</th>
+          {!noContract && th('sal', '$M/YR', 'num')}
+          {extra && <th />}
+        </tr>
+      }
+      row={(p) => (
+        <tr key={p.id} className="click" onClick={() => onPick(p)}>
+          <td>{p.pos}</td>
+          <td style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {p.first[0]}. {p.last} {p.injury && <span className="badge inj">{p.injury.desc === 'Suspended' ? 'S' : p.injury.weeks}</span>}
+          </td>
+          {showTeam && <td>{c.teams[p.teamId]?.abbr ?? 'FA'}</td>}
+          <td className="num">{p.age}</td>
+          <td className="num"><Ovr v={p.ovr} /></td>
+          <td className="num"><PotBadge p={p} /></td>
+          <td className="num wide-only" style={{ color: p.morale > 70 ? 'var(--green)' : p.morale < 40 ? 'var(--red)' : undefined }}>{Math.round(p.morale)}</td>
+          {!noContract && <td className="num">{p.contract.salary.toFixed(1)}/{Math.max(0, p.contract.years)}</td>}
+          {extra && <td onClick={(e) => e.stopPropagation()}>{extra(p)}</td>}
+        </tr>
+      )}
+    />
+  );
+}
+
+export function PosFilter({ value, onChange }: { value: 'ALL' | Pos; onChange: (v: 'ALL' | Pos) => void }) {
+  return (
+    <div className="row" style={{ gap: 3 }}>
+      {POS_FILTER.map((f) => (
+        <button key={f} className={`tab ${value === f ? 'on' : ''}`} style={{ flex: 1, padding: '4px 0' }} onClick={() => onChange(f)}>{f === 'ALL' ? 'All' : f}</button>
+      ))}
     </div>
   );
 }
@@ -235,31 +240,18 @@ export function RosterScreen() {
   const [filter, setFilter] = useState<'ALL' | Pos>('ALL');
   const [sel, setSel] = useState<Player | null>(null);
   const players = teamPlayers(c, c.userTeam).filter((p) => filter === 'ALL' || p.pos === filter);
-  const u = unitRatings(c, c.userTeam);
   const pay = payroll(c, c.userTeam);
   return (
     <div className="screen">
-      <TopBar title="ROSTER" right={<Btn size="small" kind="blue" onClick={() => app.go('depth')}>Depth Chart</Btn>} />
-      <Panel>
-        <div className="row wrap small" style={{ gap: 14 }}>
-          <span>Players <b>{c.teams[c.userTeam].roster.length}</b>/40</span>
-          <span>Payroll <b>{money(pay)}</b> / {money(SALARY_CAP)}</span>
-          <span>Cap space <b className={capSpace(c, c.userTeam) < 0 ? 'red' : 'green'}>{money(capSpace(c, c.userTeam))}</b></span>
-          {c.teams[c.userTeam].deadCap > 0 && <span>Dead cap {money(c.teams[c.userTeam].deadCap)}</span>}
-        </div>
-        <div className="row wrap small" style={{ gap: 10, marginTop: 6 }}>
-          {(['qb', 'rb', 'wr', 'te', 'ol', 'dl', 'lb', 'db', 'k'] as const).map((k) => (
-            <span key={k}>{k.toUpperCase()} <Ovr v={Math.round(u[k])} /></span>
-          ))}
-        </div>
-      </Panel>
-      <div className="tabs">
-        {POS_FILTER.map((f) => (
-          <button key={f} className={`tab ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>{f}</button>
-        ))}
+      <TopBar title="ROSTER" right={<Btn size="small" kind="blue" onClick={() => app.go('depth')}>Depth</Btn>} />
+      <div className="row small" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <span><b>{c.teams[c.userTeam].roster.length}</b>/40 players</span>
+        <span>Payroll <b>{money(pay)}</b></span>
+        <span>Space <b className={capSpace(c, c.userTeam) < 0 ? 'red' : 'green'}>{money(capSpace(c, c.userTeam))}</b></span>
       </div>
-      <Panel dark>
-        <PlayerTable players={players} onPick={setSel} c={c} />
+      <PosFilter value={filter} onChange={setFilter} />
+      <Panel dark className="fill">
+        <PlayerTable players={players} onPick={setSel} c={c} resetKey={filter} />
       </Panel>
       {sel && <PlayerModal p={sel} onClose={() => setSel(null)} />}
     </div>
@@ -289,30 +281,40 @@ export function DepthScreen() {
         title="DEPTH CHART"
         right={
           <Btn size="small" kind="blue" onClick={() => { autoDepth(c, t, false); app.refresh(); app.persist(); app.toast('Depth chart sorted by overall'); }}>
-            Auto Sort
+            Auto
           </Btn>
         }
       />
-      <Tabs tabs={POSITIONS.map((p) => ({ id: p, label: p }))} value={pos} onChange={setPos} />
-      <Panel title={`${pos} - ${STARTERS[pos]} STARTER${STARTERS[pos] > 1 ? 'S' : ''}`}>
-        {ids.length === 0 && <Empty>No players at this position. Sign a free agent.</Empty>}
-        {ids.map((id, i) => {
-          const p = pm.get(id);
-          if (!p) return null;
-          return (
-            <div key={id} className="spread" style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
-              <span className={i < STARTERS[pos] ? 'gold pixel' : 'muted pixel'} style={{ fontSize: 9, width: 34 }}>{i < STARTERS[pos] ? 'ST' : `#${i + 1}`}</span>
-              <span className="grow" onClick={() => setSel(p)} style={{ cursor: 'pointer' }}>
-                {fullName(p)} {p.injury && <span className="badge inj">INJ</span>}
-              </span>
-              <Ovr v={p.ovr} />
-              <Btn size="small" kind="blue" disabled={i === 0} onClick={() => move(i, -1)}>▲</Btn>
-              <Btn size="small" kind="blue" disabled={i === ids.length - 1} onClick={() => move(i, 1)}>▼</Btn>
-            </div>
-          );
-        })}
-        <div className="muted small" style={{ marginTop: 8 }}>Injured starters are skipped automatically on game day. Backups at other positions fill in if a group runs out.</div>
+      <div className="row" style={{ gap: 3 }}>
+        {POSITIONS.map((p) => (
+          <button key={p} className={`tab ${pos === p ? 'on' : ''}`} style={{ flex: 1, padding: '4px 0' }} onClick={() => setPos(p)}>{p}</button>
+        ))}
+      </div>
+      <Panel title={`${pos} - ${STARTERS[pos]} STARTER${STARTERS[pos] > 1 ? 'S' : ''}`} className="fill">
+        {ids.length === 0 ? (
+          <Empty>No players at this position. Sign a free agent.</Empty>
+        ) : (
+          <Paged
+            resetKey={pos}
+            items={ids.map((id, i) => {
+              const p = pm.get(id);
+              if (!p) return null;
+              return (
+                <div key={id} className="spread" style={{ padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+                  <span className={i < STARTERS[pos] ? 'gold pixel' : 'muted pixel'} style={{ fontSize: 8, width: 28 }}>{i < STARTERS[pos] ? 'ST' : `#${i + 1}`}</span>
+                  <span className="grow small" onClick={() => setSel(p)} style={{ cursor: 'pointer' }}>
+                    {fullName(p)} {p.injury && <span className="badge inj">INJ</span>}
+                  </span>
+                  <Ovr v={p.ovr} />
+                  <Btn size="small" kind="blue" disabled={i === 0} onClick={() => move(i, -1)}>▲</Btn>
+                  <Btn size="small" kind="blue" disabled={i === ids.length - 1} onClick={() => move(i, 1)}>▼</Btn>
+                </div>
+              );
+            })}
+          />
+        )}
       </Panel>
+      <div className="muted tiny">Injured starters are skipped on game day; backups from other positions fill gaps.</div>
       {sel && <PlayerModal p={sel} onClose={() => setSel(null)} />}
     </div>
   );
@@ -323,31 +325,25 @@ export function TeamScreen({ teamId }: { teamId: number }) {
   const c = app.career!;
   const t = c.teams[teamId];
   const [sel, setSel] = useState<Player | null>(null);
+  const [filter, setFilter] = useState<'ALL' | Pos>('ALL');
   const u = unitRatings(c, teamId);
   const canTrade = teamId !== c.userTeam && (c.phase === 'offseason' || (c.phase === 'regular' && c.week <= TRADE_DEADLINE_WEEK));
   return (
     <div className="screen">
-      <TopBar title={teamName(t).toUpperCase()} right={canTrade ? <Btn size="small" onClick={() => app.go('trades', { partner: teamId })}>Propose Trade</Btn> : undefined} />
-      <Panel>
-        <div className="row">
-          <TeamBadge team={t} size={50} />
-          <div className="grow">
-            <div>{recordText(t)} - {t.stadium}{t.dome ? ' (dome)' : ''}</div>
-            <div className="small muted">Prestige {t.prestige} - Titles {t.titles.length ? t.titles.join(', ') : 'none'}</div>
-          </div>
-          <div className="col" style={{ alignItems: 'flex-end' }}>
-            <Ovr v={u.ovr} />
-            <span className="tiny muted">OFF {u.off} DEF {u.def}</span>
+      <TopBar title={t.abbr} right={canTrade ? <Btn size="small" onClick={() => app.go('trades', { partner: teamId })}>Trade</Btn> : undefined} />
+      <div className="row">
+        <TeamBadge team={t} size={34} />
+        <div className="grow" style={{ minWidth: 0 }}>
+          <div className="small">{teamName(t)} - {recordText(t)}</div>
+          <div className="tiny muted" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Prestige {t.prestige} - Titles {t.titles.length ? t.titles.join(', ') : 'none'}{t.history.length ? ' - ' + t.history.slice(-3).map((h) => `${h.year} ${h.w}-${h.l}`).join(', ') : ''}
           </div>
         </div>
-        {t.history.length > 0 && (
-          <div className="small muted" style={{ marginTop: 6 }}>
-            History: {t.history.slice(-6).map((h) => `${h.year} ${h.w}-${h.l}${h.result ? ' ' + h.result : ''}`).join(' | ')}
-          </div>
-        )}
-      </Panel>
-      <Panel dark>
-        <PlayerTable players={teamPlayers(c, teamId)} onPick={setSel} c={c} />
+        <Ovr v={u.ovr} />
+      </div>
+      <PosFilter value={filter} onChange={setFilter} />
+      <Panel dark className="fill">
+        <PlayerTable players={teamPlayers(c, teamId).filter((p) => filter === 'ALL' || p.pos === filter)} onPick={setSel} c={c} resetKey={filter} />
       </Panel>
       {sel && <PlayerModal p={sel} onClose={() => setSel(null)} mode="view" />}
     </div>

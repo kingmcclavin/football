@@ -30,7 +30,7 @@ function TitleArt() {
     drawEmblem(c, 2, 2, 20, '#c8102e', '#ffffff', 'G', 0);
     drawEmblem(c, 138, 2, 20, '#1f4fb4', '#ffd23f', 'L', 1);
   }, []);
-  return <canvas ref={ref} style={{ width: '100%', maxWidth: 480, imageRendering: 'pixelated', display: 'block', margin: '0 auto' }} />;
+  return <canvas ref={ref} style={{ width: '100%', maxWidth: 'min(480px, 60vh)', imageRendering: 'pixelated', display: 'block', margin: '0 auto' }} />;
 }
 
 export function TitleScreen() {
@@ -72,48 +72,44 @@ export function TitleScreen() {
   };
   const canVia = !!c || !!cont;
   return (
-    <div className="screen">
-      <div className="logo">
-        GRIDIRON
-        <br />
-        LEGENDS
-        <small>RETRO FOOTBALL CAREER</small>
-      </div>
-      <TitleArt />
-      <div className="col" style={{ maxWidth: 520, margin: '14px auto 0' }}>
-        {c ? (
-          <Panel title="CURRENT CAREER">
-            <div className="spread">
-              <div>
-                <div className="pixel" style={{ fontSize: 10 }}>{c.teams[c.userTeam].city} {c.teams[c.userTeam].name}</div>
-                <div className="muted small">
-                  {c.year} season - {recordText(c.teams[c.userTeam])} - {c.phase === 'offseason' ? 'Offseason' : c.phase === 'playoffs' ? 'Playoffs' : `Week ${c.week}`}
-                </div>
-                {next && <div className="small">Next: {next.home === c.userTeam ? 'vs' : '@'} {c.teams[next.home === c.userTeam ? next.away : next.home].abbr}</div>}
-              </div>
-              <Btn kind="green" onClick={() => app.reset({ name: 'hub' })}>Resume</Btn>
-            </div>
-          </Panel>
-        ) : cont ? (
-          <Btn size="big" kind="green" wide onClick={() => open(contSlot)}>
-            Continue Career
-            <div className="small" style={{ fontFamily: 'var(--font-body)', textTransform: 'none', marginTop: 4 }}>
-              {cont.team} - {cont.year} ({cont.record})
-            </div>
-          </Btn>
-        ) : null}
-        <Btn size="big" wide onClick={() => app.go('slots', { mode: 'new' })}>New Career</Btn>
-        <Btn size="big" kind="blue" wide onClick={() => app.go('slots', { mode: 'load' })}>Load Career</Btn>
-        <div className="grid2">
-          <Btn kind="blue" wide disabled={!canVia} onClick={() => via('roster')}>Team & Roster</Btn>
-          <Btn kind="blue" wide disabled={!canVia} onClick={() => via('league')}>League & Standings</Btn>
-          <Btn kind="blue" wide disabled={!canVia} onClick={() => via('schedule')}>Schedule</Btn>
-          <Btn kind="blue" wide disabled={!canVia} onClick={() => via('stats')}>Stats & Records</Btn>
-          <Btn kind="blue" wide onClick={() => app.go('settings')}>Settings</Btn>
-          <Btn kind="blue" wide onClick={() => app.go('help')}>Help & Controls</Btn>
+    <div className="screen" style={{ justifyContent: 'center' }}>
+      <div className="land-cols" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div className="col" style={{ alignItems: 'center' }}>
+          <div className="logo">
+            GRIDIRON
+            <br />
+            LEGENDS
+            <small>RETRO FOOTBALL CAREER</small>
+          </div>
+          <TitleArt />
         </div>
-        <div className="muted tiny center" style={{ marginTop: 10 }}>
-          Original game. All teams, players and art are fictional. Saves are stored on this device.
+        <div className="col" style={{ maxWidth: 520, width: '100%', margin: '8px auto 0' }}>
+          {c ? (
+            <Btn size="big" kind="green" wide onClick={() => app.reset({ name: 'hub' })}>
+              Resume Career
+              <div className="small" style={{ fontFamily: 'var(--font-body)', textTransform: 'none', marginTop: 2 }}>
+                {c.teams[c.userTeam].abbr} {c.year} ({recordText(c.teams[c.userTeam])}){next ? ` - next ${next.home === c.userTeam ? 'vs' : '@'} ${c.teams[next.home === c.userTeam ? next.away : next.home].abbr}` : ''}
+              </div>
+            </Btn>
+          ) : cont ? (
+            <Btn size="big" kind="green" wide onClick={() => open(contSlot)}>
+              Continue Career
+              <div className="small" style={{ fontFamily: 'var(--font-body)', textTransform: 'none', marginTop: 2 }}>
+                {cont.team} - {cont.year} ({cont.record})
+              </div>
+            </Btn>
+          ) : null}
+          <div className="grid2" style={{ gap: 6 }}>
+            <Btn wide onClick={() => app.go('slots', { mode: 'new' })}>New Career</Btn>
+            <Btn kind="blue" wide onClick={() => app.go('slots', { mode: 'load' })}>Load Career</Btn>
+            <Btn kind="blue" wide disabled={!canVia} onClick={() => via('roster')}>Roster</Btn>
+            <Btn kind="blue" wide disabled={!canVia} onClick={() => via('league')}>Standings</Btn>
+            <Btn kind="blue" wide disabled={!canVia} onClick={() => via('schedule')}>Schedule</Btn>
+            <Btn kind="blue" wide disabled={!canVia} onClick={() => via('stats')}>Stats</Btn>
+            <Btn kind="blue" wide onClick={() => app.go('settings')}>Settings</Btn>
+            <Btn kind="blue" wide onClick={() => app.go('help')}>Help</Btn>
+          </div>
+          <div className="muted tiny center">Saves are stored on this device.</div>
         </div>
       </div>
       {err && (

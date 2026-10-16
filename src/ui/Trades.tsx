@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Btn, Panel, TopBar, useApp, Ovr, money, Empty } from './common';
+import { Btn, Panel, TopBar, useApp, Ovr, money, Empty, Tabs } from './common';
+import { Paged } from './paged';
 import { teamPlayers, TRADE_DEADLINE_WEEK, capSpace } from '../league/career';
 import type { DraftPick, Player } from '../core/types';
-import { evaluateTrade, executeTrade, pickValue, type TradeOffer } from '../league/transactions';
-import { playerValue } from '../league/players';
+import { evaluateTrade, executeTrade, type TradeOffer } from '../league/transactions';
 import { PlayerModal } from './Roster';
 
 export function TradesScreen({ partner }: { partner?: number }) {
@@ -33,53 +33,51 @@ export function TradesScreen({ partner }: { partner?: number }) {
     setGivePk([]);
     setGetPk([]);
   };
+  const [side, setSide] = useState<'send' | 'get' | 'picks'>('send');
   const plist = (ps: Player[], chosen: number[], set: (v: number[]) => void) => (
-    <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-      {ps.map((p) => (
-        <div key={p.id} className="spread small" style={{ padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.12)', background: chosen.includes(p.id) ? 'rgba(255,210,63,0.2)' : undefined }}>
-          <input type="checkbox" checked={chosen.includes(p.id)} onChange={() => toggle(chosen, set, p.id)} style={{ width: 22, height: 22 }} />
-          <span className="grow" onClick={() => setSel(p)} style={{ cursor: 'pointer' }}>{p.pos} {p.first[0]}. {p.last} <span className="muted">({p.age})</span></span>
+    <Paged
+      resetKey={`${pid}-${side}`}
+      items={ps.map((p) => (
+        <div key={p.id} className="spread small" style={{ padding: '2px 0', borderBottom: '1px solid rgba(255,255,255,0.12)', background: chosen.includes(p.id) ? 'rgba(255,210,63,0.2)' : undefined }}>
+          <input type="checkbox" checked={chosen.includes(p.id)} onChange={() => toggle(chosen, set, p.id)} style={{ width: 20, height: 20, margin: 0 }} />
+          <span className="grow" onClick={() => setSel(p)} style={{ cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.pos} {p.first[0]}. {p.last} <span className="muted">({p.age})</span></span>
           <Ovr v={p.ovr} />
-          <span className="tiny muted" style={{ width: 70, textAlign: 'right' }}>{money(p.contract.salary)}/{p.contract.years}y</span>
+          <span className="tiny muted" style={{ width: 58, textAlign: 'right' }}>{money(p.contract.salary)}/{p.contract.years}y</span>
         </div>
       ))}
-    </div>
+    />
   );
+  const theirAbbr = c.teams[pid].abbr;
   return (
     <div className="screen">
-      <TopBar title="TRADE CENTER" />
+      <TopBar title="TRADES" right={open ? (
+        <select value={pid} onChange={(e) => { setPid(Number(e.target.value)); reset(); setResult(null); }} aria-label="Trade partner" style={{ padding: '3px 4px', maxWidth: 170 }}>
+          {others.map((t) => <option key={t.id} value={t.id}>{t.abbr} ({capSpace(c, t.id).toFixed(0)}M)</option>)}
+        </select>
+      ) : undefined} />
       {!open ? (
         <Panel><Empty>The trade deadline (week {TRADE_DEADLINE_WEEK}) has passed. Trades reopen in the offseason.</Empty></Panel>
       ) : (
         <>
-          <Panel>
-            <div className="row wrap">
-              <span className="pixel" style={{ fontSize: 9 }}>Partner</span>
-              <select value={pid} onChange={(e) => { setPid(Number(e.target.value)); reset(); setResult(null); }}>
-                {others.map((t) => <option key={t.id} value={t.id}>{t.city} {t.name} ({capSpace(c, t.id).toFixed(1)}M space)</option>)}
-              </select>
-            </div>
+          <Tabs tabs={[{ id: 'send', label: `Send (${give.length})` }, { id: 'get', label: `Get from ${theirAbbr} (${get.length})` }, { id: 'picks', label: `Picks (${givePk.length + getPk.length})` }]} value={side} onChange={setSide} />
+          <Panel dark className="fill">
+            {side === 'send' && plist(mine, give, setGive)}
+            {side === 'get' && plist(theirs, get, setGet)}
+            {side === 'picks' && (
+              <div className="col" style={{ gap: 4 }}>
+                <h3>Your picks</h3>
+                <div className="row wrap" style={{ gap: 3 }}>{myPicks.map((p, i) => <button key={i} className={`tab ${givePk.includes(p) ? 'on' : ''}`} onClick={() => togglePk(givePk, setGivePk, p)}>{pickLabel(p)}</button>)}</div>
+                <h3>{theirAbbr} picks</h3>
+                <div className="row wrap" style={{ gap: 3 }}>{theirPicks.map((p, i) => <button key={i} className={`tab ${getPk.includes(p) ? 'on' : ''}`} onClick={() => togglePk(getPk, setGetPk, p)}>{pickLabel(p)}</button>)}</div>
+              </div>
+            )}
           </Panel>
-          <div className="grid2">
-            <Panel title="YOU SEND">
-              {plist(mine, give, setGive)}
-              <h3 style={{ marginTop: 6 }}>Draft picks</h3>
-              <div className="row wrap">{myPicks.map((p, i) => <button key={i} className={`tab ${givePk.includes(p) ? 'on' : ''}`} onClick={() => togglePk(givePk, setGivePk, p)}>{pickLabel(p)}</button>)}</div>
-            </Panel>
-            <Panel title="YOU RECEIVE">
-              {plist(theirs, get, setGet)}
-              <h3 style={{ marginTop: 6 }}>Draft picks</h3>
-              <div className="row wrap">{theirPicks.map((p, i) => <button key={i} className={`tab ${getPk.includes(p) ? 'on' : ''}`} onClick={() => togglePk(getPk, setGetPk, p)}>{pickLabel(p)}</button>)}</div>
-            </Panel>
-          </div>
-          <Panel title="PROPOSAL">
-            <div className="spread small">
-              <span>Value you send: <b>{ev.giveV.toFixed(0)}</b></span>
-              <span>Value you get: <b>{ev.getV.toFixed(0)}</b></span>
-            </div>
-            <div className={`small ${ev.ok ? 'green' : 'muted'}`} style={{ margin: '6px 0' }}>{ev.ok ? 'They are ready to accept.' : ev.reason}</div>
-            <div className="row wrap">
+          <div className="spread small">
+            <span>Send <b>{ev.giveV.toFixed(0)}</b> / Get <b>{ev.getV.toFixed(0)}</b> - <span className={ev.ok ? 'green' : 'muted'}>{result ?? (ev.ok ? 'They accept.' : ev.reason)}</span></span>
+            <div className="row" style={{ gap: 4 }}>
+              <Btn size="small" kind="blue" onClick={reset}>Clear</Btn>
               <Btn
+                size="small"
                 kind="green"
                 disabled={!ev.ok}
                 onClick={async () => {
@@ -90,15 +88,10 @@ export function TradesScreen({ partner }: { partner?: number }) {
                   app.refresh();
                 }}
               >
-                Propose Trade
+                Propose
               </Btn>
-              <Btn kind="blue" onClick={reset}>Clear</Btn>
             </div>
-            {result && <div className="gold" style={{ marginTop: 6 }}>{result}</div>}
-            <div className="muted tiny" style={{ marginTop: 6 }}>
-              Teams value youth, potential and premium positions (QB, pass rush, WR, coverage). Picks from bad teams are worth more. Value guide: {mine[0] ? `${mine[0].last} = ${playerValue(mine[0]).toFixed(0)}` : ''}{myPicks[0] ? `, your ${pickLabel(myPicks[0])} = ${pickValue(c, myPicks[0]).toFixed(0)}` : ''}.
-            </div>
-          </Panel>
+          </div>
         </>
       )}
       {sel && <PlayerModal p={sel} onClose={() => setSel(null)} mode="view" />}

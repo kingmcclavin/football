@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Btn, Panel, TeamBadge, TopBar, useApp, Ovr, Tabs } from './common';
+import { Btn, TeamBadge, TopBar, useApp, Ovr } from './common';
 import { createCareer, teamName, type Career } from '../league/career';
 import { unitRatings } from '../league/depth';
 import { expectedWins } from '../league/frontoffice';
@@ -21,6 +21,7 @@ export function NewCareer({ slot }: { slot: number }) {
   const [seed, setSeed] = useState(randomSeed);
   const [conf, setConf] = useState<'0' | '1'>('0');
   const [pick, setPick] = useState<number | null>(null);
+  const [div, setDiv] = useState(0);
   const draft = useMemo<Career>(() => createCareer({ coachName: name, teamId: 0, difficulty: diff, slot, seed }), [seed]); // eslint-disable-line react-hooks/exhaustive-deps
   const ratings = useMemo(() => draft.teams.map((t) => unitRatings(draft, t.id)), [draft]);
 
@@ -42,62 +43,47 @@ export function NewCareer({ slot }: { slot: number }) {
     app.reset({ name: 'hub', params: { welcome: true } });
   };
 
-  const teams = draft.teams.filter((t) => String(t.conf) === conf);
+  const teams = draft.teams.filter((t) => String(t.conf) === conf && t.div === div);
   return (
     <div className="screen">
       <TopBar title="NEW CAREER" />
-      <Panel title="HEAD COACH">
-        <div className="row wrap">
-          <label className="pixel" style={{ fontSize: 9 }}>Name</label>
-          <input value={name} maxLength={24} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 160 }} />
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <div className="pixel" style={{ fontSize: 9, marginBottom: 6 }}>Difficulty</div>
-          <div className="row wrap">
-            {DIFFS.map((d) => (
-              <button key={d.id} className={`tab ${diff === d.id ? 'on' : ''}`} onClick={() => setDiff(d.id)}>
-                {d.label}
-              </button>
-            ))}
-          </div>
-          <div className="muted small" style={{ marginTop: 4 }}>{DIFFS.find((d) => d.id === diff)!.desc}</div>
-        </div>
-      </Panel>
-      <Panel title="CHOOSE YOUR TEAM">
-        <div className="spread" style={{ marginBottom: 6 }}>
-          <Tabs tabs={[{ id: '0', label: CONFERENCES[0] }, { id: '1', label: CONFERENCES[1] }]} value={conf} onChange={setConf} />
-          <Btn kind="blue" size="small" onClick={() => { setSeed(randomSeed()); setPick(null); }}>New League</Btn>
-        </div>
-        <div className="muted small" style={{ marginBottom: 8 }}>Weaker teams are harder to win with but the owner expects less. Each new league reshuffles every roster.</div>
-        {DIVISIONS.map((dname, d) => (
-          <div key={d} style={{ marginBottom: 8 }}>
-            <h3>{dname}</h3>
-            <div className="grid2">
-              {teams.filter((t) => t.div === d).map((t) => {
-                const r = ratings[t.id];
-                return (
-                  <button key={t.id} className={`playcard ${pick === t.id ? 'sel' : ''}`} onClick={() => setPick(t.id)} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <TeamBadge team={t} size={40} />
-                    <div className="grow">
-                      <div className="pixel" style={{ fontSize: 9 }}>{t.city}</div>
-                      <div>{t.name}</div>
-                    </div>
-                    <div className="col" style={{ alignItems: 'flex-end', gap: 2 }}>
-                      <Ovr v={r.ovr} />
-                      <span className="tiny muted">OFF {r.off} DEF {r.def}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </Panel>
-      <div style={{ position: 'sticky', bottom: 0, paddingBottom: 'var(--safe-bottom)' }}>
-        <Btn size="big" kind="green" wide disabled={pick === null} onClick={start}>
-          {pick === null ? 'Select a team' : `Take the ${draft.teams[pick].name} job`}
-        </Btn>
+      <div className="row" style={{ gap: 6 }}>
+        <input value={name} maxLength={24} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 0, padding: '4px 6px' }} aria-label="Coach name" />
+        <select value={diff} onChange={(e) => setDiff(e.target.value as Difficulty)} aria-label="Difficulty" style={{ padding: '4px 6px' }}>
+          {DIFFS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+        </select>
       </div>
+      <div className="muted tiny">{DIFFS.find((d) => d.id === diff)!.desc}</div>
+      <div className="row" style={{ gap: 4 }}>
+        {[0, 1].map((cf) => (
+          <button key={cf} className={`tab ${conf === String(cf) ? 'on' : ''}`} style={{ flex: 1 }} onClick={() => setConf(String(cf) as '0' | '1')}>{CONFERENCES[cf].split(' ')[0]}</button>
+        ))}
+        <button className="tab" onClick={() => { setSeed(randomSeed()); setPick(null); }}>New League</button>
+      </div>
+      <div className="row" style={{ gap: 4 }}>
+        {DIVISIONS.map((d, i) => (
+          <button key={d} className={`tab ${div === i ? 'on' : ''}`} style={{ flex: 1 }} onClick={() => setDiv(i)}>{d}</button>
+        ))}
+      </div>
+      <div className="fill" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridAutoRows: '1fr', gap: 6 }}>
+        {teams.map((t) => {
+          const r = ratings[t.id];
+          return (
+            <button key={t.id} className={`playcard ${pick === t.id ? 'sel' : ''}`} onClick={() => setPick(t.id)} style={{ display: 'flex', gap: 6, alignItems: 'center', minHeight: 0 }}>
+              <TeamBadge team={t} size={34} />
+              <div className="grow" style={{ minWidth: 0 }}>
+                <div className="pixel" style={{ fontSize: 8 }}>{t.city}</div>
+                <div className="small">{t.name}</div>
+                <div className="tiny muted">OFF {r.off} DEF {r.def}</div>
+              </div>
+              <Ovr v={r.ovr} />
+            </button>
+          );
+        })}
+      </div>
+      <Btn size="big" kind="green" wide disabled={pick === null} onClick={start}>
+        {pick === null ? 'Select a team' : `Take the ${draft.teams[pick].name} job`}
+      </Btn>
     </div>
   );
 }

@@ -10,16 +10,16 @@ import { careerRng, saveRng } from '../league/career';
 import { clearLive, loadLive, saveLive } from '../save/storage';
 import { sfx, unlockAudio } from '../audio/sfx';
 import { playDiagram, defDiagram } from './playArt';
+import { PagedGrid } from './paged';
 import { fgDistance, clockText, quarterText, other } from '../game/rules';
 
-const CATS: { id: PlayCategory | 'all'; label: string }[] = [
-  { id: 'all', label: 'All' },
+const CATS: { id: PlayCategory; label: string }[] = [
   { id: 'short', label: 'Short' },
   { id: 'medium', label: 'Medium' },
   { id: 'deep', label: 'Deep' },
   { id: 'run', label: 'Run' },
   { id: 'screen', label: 'Screen' },
-  { id: 'pa', label: 'Play Action' },
+  { id: 'pa', label: 'PA' },
   { id: 'special', label: 'Special' },
 ];
 
@@ -44,7 +44,7 @@ export function GameScreen({ resume }: { resume: boolean }) {
   const [, setTick] = useState(0);
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
-  const [cat, setCat] = useState<PlayCategory | 'all'>('all');
+  const [cat, setCat] = useState<PlayCategory>('short');
   const [ready, setReady] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const input = useRef<PlayInput>({ ...NO_INPUT });
@@ -424,20 +424,24 @@ export function GameScreen({ resume }: { resume: boolean }) {
                   <Btn size="small" kind="ghost" disabled={!g.clockRunning || g.timeouts[m.userSide] === 0 || m.runoffDone} onClick={() => { m.userTimeout(); setTick((x) => x + 1); }}>Timeout ({g.timeouts[m.userSide]})</Btn>
                 </div>
               </div>
-              <div className="tabs" style={{ marginBottom: 6 }}>
+              <div className="tabs">
                 {CATS.map((ct) => (
                   <button key={ct.id} className={`tab ${cat === ct.id ? 'on' : ''}`} onClick={() => setCat(ct.id)}>{ct.label}</button>
                 ))}
               </div>
               <div className="plays">
-                {PLAYS.filter((p) => (cat === 'all' ? true : p.cat === cat) && !(m.twoPointTry && (p.id === 'spike' || p.id === 'kneel'))).map((p) => (
-                  <button key={p.id} className="playcard" onClick={() => { sfx('click'); m.choosePlay(p.id); setTick((x) => x + 1); }}>
-                    <img src={playDiagram(p)} alt="" style={{ width: '100%', imageRendering: 'pixelated', display: 'block', borderRadius: 3 }} />
-                    <div className="nm">{p.name}</div>
-                    <div className="ds">{p.desc}</div>
-                    <div className="risk" style={{ color: p.risk === 3 ? 'var(--red)' : p.risk === 2 ? 'var(--gold)' : 'var(--green)' }}>{'●'.repeat(p.risk)}{'○'.repeat(3 - p.risk)} {p.cat}</div>
-                  </button>
-                ))}
+                <PagedGrid
+                  minWidth={112}
+                  resetKey={cat}
+                  items={PLAYS.filter((p) => p.cat === cat && !(m.twoPointTry && (p.id === 'spike' || p.id === 'kneel'))).map((p) => (
+                    <button key={p.id} className="playcard" onClick={() => { sfx('click'); m.choosePlay(p.id); setTick((x) => x + 1); }}>
+                      <img src={playDiagram(p)} alt="" style={{ width: '100%', aspectRatio: '96 / 60', imageRendering: 'pixelated', display: 'block', borderRadius: 3 }} />
+                      <div className="nm">{p.name}</div>
+                      <div className="ds">{p.desc}</div>
+                      <div className="risk" style={{ color: p.risk === 3 ? 'var(--red)' : p.risk === 2 ? 'var(--gold)' : 'var(--green)' }}>{'●'.repeat(p.risk)}{'○'.repeat(3 - p.risk)} {p.cat}</div>
+                    </button>
+                  ))}
+                />
               </div>
             </div>
           )}
@@ -455,14 +459,17 @@ export function GameScreen({ resume }: { resume: boolean }) {
                 </div>
               </div>
               <div className="plays">
-                {DEF_CALLS.map((d) => (
-                  <button key={d.id} className="playcard" onClick={() => { sfx('click'); m.chooseDefense(d.id); setTick((x) => x + 1); }}>
-                    <img src={defDiagram(d)} alt="" style={{ width: '100%', imageRendering: 'pixelated', display: 'block', borderRadius: 3 }} />
-                    <div className="nm">{d.name}</div>
-                    <div className="ds">{d.desc}</div>
-                    <div className="risk muted">vs {d.vs}</div>
-                  </button>
-                ))}
+                <PagedGrid
+                  minWidth={112}
+                  items={DEF_CALLS.map((d) => (
+                    <button key={d.id} className="playcard" onClick={() => { sfx('click'); m.chooseDefense(d.id); setTick((x) => x + 1); }}>
+                      <img src={defDiagram(d)} alt="" style={{ width: '100%', aspectRatio: '96 / 60', imageRendering: 'pixelated', display: 'block', borderRadius: 3 }} />
+                      <div className="nm">{d.name}</div>
+                      <div className="ds">{d.desc}</div>
+                      <div className="risk muted">vs {d.vs}</div>
+                    </button>
+                  ))}
+                />
               </div>
             </div>
           )}
