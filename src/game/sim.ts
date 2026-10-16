@@ -46,6 +46,11 @@ export interface PlayInput {
 }
 export const NO_INPUT: PlayInput = { move: null, sprint: false, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0 };
 
+/** Apex of a pass above its straight line, in yards: touch passes loft, short ones still clear the line. */
+export function passPeak(d: number) {
+  return 0.9 + d * 0.13;
+}
+
 /** Real-time pace of live plays: below 1 plays out slower and more deliberately. */
 export const PACE = 0.74;
 /** Yards a single swipe scoots the user's player sideways. */
@@ -883,7 +888,7 @@ export class PlaySim {
     const dur = 0.22 + d / speed;
     this.ball = {
       state: 'air', holder: -1, x: q.x, y: q.y, z: 2, fx: q.x, fy: q.y, fz: 2, tx: fx, ty: fy,
-      t: 0, dur, peak: 0.4 + d * 0.085, kind: 'pass', thrower: q.i, touched: new Set(),
+      t: 0, dur, peak: passPeak(d), kind: 'pass', thrower: q.i, touched: new Set(),
     };
     this.passThrown = true;
     this.lastPasser = q.i;

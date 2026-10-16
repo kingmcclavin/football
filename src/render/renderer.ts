@@ -3,7 +3,7 @@
 import type { Team } from '../core/types';
 import { clamp, lerp } from '../core/rng';
 import type { Match } from '../game/match';
-import { FIELD_W, MID_Y, type Actor } from '../game/sim';
+import { FIELD_W, MID_Y, passPeak, type Actor } from '../game/sim';
 import { ROUTES } from '../game/playbook';
 import { clockText, quarterText, other, type Side } from '../game/rules';
 import { getSprite, poseSize, drawBall as drawPixelBall, shade, SKINS, type SpriteColors } from './sprites';
@@ -13,7 +13,8 @@ import { animLength, artReady, assetFrame, ballFrame, fieldImage } from './asset
 // field and ~3.3 px per yard across it, matching the field art.
 export const PXX = 10;
 export const PXY = 174 / FIELD_W;
-const ZPX = 4; // pixels per yard of height (ball flight)
+const ZPX = 4; // pixels per yard of height (kicks)
+const PASS_ZPX = 6; // passes get a taller on-screen arc
 const WORLD_X0 = -15;
 const WORLD_X1 = 115;
 const WORLD_Y0 = -30 / PXY;
@@ -665,7 +666,7 @@ export class Renderer {
       const sy = this.sy(ball.y);
       b.fillStyle = 'rgba(0,0,0,0.35)';
       b.fillRect(sx - 1, sy, 3, 1);
-      drawBall(b, sx, sy - Math.round(ball.z * ZPX), Math.floor(m.time * 12));
+      drawBall(b, sx, sy - Math.round(ball.z * (ball.kind === 'kick' ? ZPX : PASS_ZPX)), Math.floor(m.time * 12));
       if (ball.state === 'air' && ball.kind === 'kick') {
         // landing marker for returns
         const lx = this.sx(flip ? 100 - ball.tx : ball.tx);
@@ -753,7 +754,7 @@ export class Renderer {
     const q = sim.actors[sim.qb];
     if (!q) return;
     const d = Math.hypot(tx - q.x, ty - q.y);
-    const peak = 0.4 + d * 0.085;
+    const peak = passPeak(d);
     const steps = 18;
     for (let i = 1; i < steps; i++) {
       const u = i / steps;
@@ -761,7 +762,7 @@ export class Renderer {
       const y = lerp(q.y, ty, u);
       const z = 2 * (1 - u) + 1.3 * u + 4 * peak * u * (1 - u);
       b.fillStyle = i % 2 ? 'rgba(255,255,255,0.9)' : 'rgba(255,227,74,0.9)';
-      b.fillRect(this.sx(x), this.sy(y) - Math.round(z * ZPX), 1, 1);
+      b.fillRect(this.sx(x), this.sy(y) - Math.round(z * PASS_ZPX), 1, 1);
     }
     const sx = this.sx(tx);
     const sy = this.sy(ty);
