@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createCareer } from '../src/league/career';
-import { Match } from '../src/game/match';
+import { Match, PLAY_CHANGES } from '../src/game/match';
 import { DEFAULT_SETTINGS } from '../src/save/settings';
 import { PLAYS } from '../src/game/playbook';
 import { NO_INPUT } from '../src/game/sim';
@@ -119,5 +119,33 @@ describe('match flow', () => {
     autoPlay(m, rng, 200000, (mm) => { if (mm.stage === 'defcall' && mm.g.phase === 'scrimmage') defcalls++; });
     expect(m.stage).toBe('final');
     expect(defcalls).toBe(0);
+  });
+
+  it('coach play calling picks plays and allows only a few changes per game', () => {
+    const c = createCareer({ coachName: 'T', teamId: 12, difficulty: 'pro', slot: 0, seed: 33 });
+    const rng = new Rng(4);
+    const game = userGameThisWeek(c)!;
+    const m = new Match(c, game, { ...DEFAULT_SETTINGS, playCalling: 'coach', defenseView: 'drive', quarterMinutes: 4 }, 'clear');
+    let coachCalls = 0;
+    let changesTried = 0;
+    let lastPresnap = -1;
+    autoPlay(m, rng, 200000, (mm) => {
+      if (mm.stage !== 'presnap' || !mm.userOnOffense || mm.g.plays === lastPresnap) return;
+      lastPresnap = mm.g.plays;
+      if (!mm.coachCalled) return;
+      coachCalls++;
+      // try to change the first six coach calls: only PLAY_CHANGES go through
+      if (changesTried < 6) {
+        changesTried++;
+        const before = mm.playChanges;
+        mm.changePlay();
+        if (before > 0) expect(mm.stage).toBe('playcall');
+        else expect(mm.stage).toBe('presnap');
+      }
+    });
+    expect(m.stage).toBe('final');
+    expect(coachCalls).toBeGreaterThan(10);
+    expect(m.playChanges).toBe(0);
+    expect(PLAY_CHANGES).toBe(4);
   });
 });

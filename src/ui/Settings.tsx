@@ -56,6 +56,7 @@ export function SettingsScreen() {
             <Choice label="Quarter length (min)" value={s.quarterMinutes} options={[3, 4, 5, 6, 8, 10, 15].map((v) => ({ v, l: String(v) }))} onChange={(v) => set({ quarterMinutes: v })} />
             <Choice label="Game speed" value={s.gameSpeed} options={[{ v: 0.85, l: 'Slow' }, { v: 1, l: 'Normal' }, { v: 1.25, l: 'Fast' }]} onChange={(v) => set({ gameSpeed: v })} />
             <Choice label="Opponent drives" value={s.defenseView} options={[{ v: 'watch', l: 'Watch' }, { v: 'fast', l: 'Fast' }, { v: 'skip', l: 'Results' }, { v: 'drive', l: 'Sim drive' }]} onChange={(v) => set({ defenseView: v })} />
+            <Choice label="Play calling" value={s.playCalling} options={[{ v: 'choose', l: 'I call them' }, { v: 'coach', l: 'Coach picks' }]} onChange={(v) => set({ playCalling: v })} />
             <Choice label="Drive direction" value={s.driveDir} options={[{ v: 'right', l: 'Right ▶' }, { v: 'left', l: '◀ Left' }]} onChange={(v) => set({ driveDir: v })} />
             <Choice label="Art style" value={s.artStyle} options={[{ v: 'sheet', l: 'Sprite sheets' }, { v: 'original', l: 'Original' }]} onChange={(v) => set({ artStyle: v })} />
             <Toggle label="Random front-office events" value={s.randomEvents} onChange={(v) => set({ randomEvents: v })} />

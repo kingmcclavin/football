@@ -493,9 +493,14 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
 
           {m.stage === 'presnap' && m.userOnOffense && (
             <>
-              <div className="hint">{m.play?.name} - tap the field or press SNAP</div>
+              <div className="hint">{m.coachCalled ? `Coach's call: ${m.play?.name}` : m.play?.name} - tap the field or press SNAP</div>
               <button className="gbtn" style={{ [left ? 'left' : 'right']: 'calc(16px + var(--safe-right))', bottom: 'calc(16px + var(--safe-bottom))', width: 84, height: 84 }} onPointerDown={(e) => { e.stopPropagation(); m.snap(); }}>SNAP</button>
-              <button className="gbtn rect blue" style={{ [left ? 'right' : 'left']: 'calc(12px + var(--safe-left))', bottom: 'calc(16px + var(--safe-bottom))' }} onPointerDown={(e) => { e.stopPropagation(); m.changePlay(); setTick((x) => x + 1); }}>CHANGE PLAY</button>
+              <button className="gbtn rect blue" style={{ [left ? 'right' : 'left']: 'calc(12px + var(--safe-left))', bottom: 'calc(16px + var(--safe-bottom))' }} disabled={!m.canChangePlay()} onPointerDown={(e) => { e.stopPropagation(); m.changePlay(); setTick((x) => x + 1); }}>
+                {m.coachCalled ? `CHANGE PLAY (${m.playChanges})` : 'CHANGE PLAY'}
+              </button>
+              {m.coachCalled && (
+                <button className="gbtn rect" style={{ [left ? 'right' : 'left']: 'calc(12px + var(--safe-left))', bottom: 'calc(64px + var(--safe-bottom))' }} disabled={!g.clockRunning || g.timeouts[m.userSide] === 0 || m.runoffDone} onPointerDown={(e) => { e.stopPropagation(); m.userTimeout(); setTick((x) => x + 1); }}>TIMEOUT ({g.timeouts[m.userSide]})</button>
+              )}
             </>
           )}
 
@@ -597,6 +602,7 @@ export function GameScreen({ resume, exhibition }: { resume: boolean; exhibition
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, sound: !app.settings.sound })}>Sound: {app.settings.sound ? 'On' : 'Off'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, gameSpeed: app.settings.gameSpeed >= 1.2 ? 0.85 : app.settings.gameSpeed >= 1 ? 1.25 : 1 })}>Speed: {app.settings.gameSpeed >= 1.2 ? 'Fast' : app.settings.gameSpeed >= 1 ? 'Normal' : 'Slow'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, driveDir: app.settings.driveDir === 'left' ? 'right' : 'left' })}>Drive: {app.settings.driveDir === 'left' ? '◀ Left' : 'Right ▶'}</Btn>
+                  <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, playCalling: app.settings.playCalling === 'coach' ? 'choose' : 'coach' })}>Play calls: {app.settings.playCalling === 'coach' ? `Coach (${m.playChanges} changes)` : 'You'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseMode: app.settings.defenseMode === 'call' ? 'auto' : 'call' })}>Defense calls: {app.settings.defenseMode === 'call' ? 'You' : 'Auto'}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, defenseView: app.settings.defenseView === 'watch' ? 'fast' : app.settings.defenseView === 'fast' ? 'skip' : app.settings.defenseView === 'skip' ? 'drive' : 'watch' })}>Opp. drives: {({ watch: 'Watch', fast: 'Fast', skip: 'Results', drive: 'Sim drive' } as const)[app.settings.defenseView]}</Btn>
                   <Btn kind="blue" wide onClick={() => app.setSettings({ ...app.settings, aimStyle: app.settings.aimStyle === 'pull' ? 'point' : 'pull' })}>Aim: {app.settings.aimStyle === 'pull' ? 'Pull back' : 'Point'}</Btn>

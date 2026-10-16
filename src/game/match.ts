@@ -63,7 +63,11 @@ export interface MatchSnapshot {
   halftimeShown: boolean;
   otTossed: boolean;
   ballY: number;
+  playChanges?: number;
 }
+
+/** Play changes allowed per game when the coach calls the plays. */
+export const PLAY_CHANGES = 4;
 
 const AI_SKILL = { rookie: -0.8, pro: 0, allpro: 0.45, legend: 0.9 };
 
@@ -91,6 +95,9 @@ export class Match {
   sounds: string[] = [];
   log: string[] = [];
   halftimeShown = false;
+  /** Coach-picked play calling: changes left this game, and whether the current call was the coach's. */
+  playChanges = PLAY_CHANGES;
+  coachCalled = false;
   otTossed = false;
   coinResult: string | null = null;
   lastOutcome: SimOutcome | null = null;
@@ -219,6 +226,8 @@ export class Match {
     if (g.possession === this.userSide) {
       this.twoPointTry = false;
       this.stage = 'playcall';
+      this.coachCalled = false;
+      if (this.settings.playCalling === 'coach') this.coachCall();
       return;
     }
     this.aiOffense();
@@ -244,14 +253,40 @@ export class Match {
     return ok;
   }
 
+  /**
+   * Coach-picked play calling: the staff choose a run or pass for normal downs and the
+   * user goes straight to the line. 4th downs, kneels, spikes and clock-situation kicks
+   * stay with the user on the play-call screen (free).
+   */
+  private coachCall() {
+    const g = this.g;
+    if (g.down >= 4 || this.twoPointTry) return;
+    const t = this.aiTendencies(this.userSide);
+    const lean = this.c.strategy.off === 'pass' ? 0.15 : this.c.strategy.off === 'run' ? -0.15 : 0;
+    const decision = decideOffense(g, { ...t, passBias: t.passBias + lean }, this.rng);
+    if (decision !== 'run' && decision !== 'pass') return;
+    const play = pickPlay(g, decision, this.rng);
+    // the between-plays runoff waits for the snap, so a timeout at the line still counts
+    this.choosePlay(play.id, true);
+    if (this.stage === 'presnap') this.coachCalled = true;
+  }
+
+  /** Coach mode: a change is available (free on the play-call screen in normal mode). */
+  private pendingRunoff = false;
+
+  canChangePlay() {
+    return this.stage === 'presnap' && this.userOnOffense && (!this.coachCalled || this.playChanges > 0);
+  }
+
   /** User picks an offensive play (or a special) from the play-call screen. */
-  choosePlay(id: string) {
+  choosePlay(id: string, deferRunoff = false) {
     const g = this.g;
     if (id === 'punt') return this.startMeter('punt');
     if (id === 'fg') return this.startMeter('fg');
     const play = PLAY_BY_ID[id];
     if (!play) return;
-    if (g.phase === 'scrimmage' && !this.runoffDone) {
+    this.pendingRunoff = deferRunoff && g.phase === 'scrimmage' && !this.runoffDone;
+    if (g.phase === 'scrimmage' && !this.runoffDone && !deferRunoff) {
       this.aiDefenseTimeout();
       const kneel = play.id === 'kneel';
       const q = g.quarter;
@@ -310,13 +345,29 @@ export class Match {
 
   /** Back to the play-call screen from the line of scrimmage (no extra clock runoff). */
   changePlay() {
-    if (this.stage !== 'presnap' || !this.userOnOffense) return;
+    if (!this.canChangePlay()) return;
+    if (this.coachCalled) {
+      this.playChanges--;
+      this.coachCalled = false;
+    }
+    this.pendingRunoff = false; // the user's own call applies it
     this.sim = null;
     this.stage = 'playcall';
   }
 
   snap() {
     if (this.stage !== 'presnap' || !this.sim) return;
+    if (this.pendingRunoff) {
+      this.pendingRunoff = false;
+      const g = this.g;
+      this.aiDefenseTimeout();
+      const q = g.quarter;
+      if (applyRunoff(g, 'normal')) {
+        this.sim = null;
+        this.periodEndedBeforeSnap(q);
+        return;
+      }
+    }
     this.runoffDone = false;
     this.sim.snap();
     this.stage = 'live';
@@ -1003,6 +1054,7 @@ export class Match {
       rng: this.rng.state,
       wind: this.wind,
       halftimeShown: this.halftimeShown,
+      playChanges: this.playChanges,
       otTossed: this.otTossed,
       ballY: this.ballY,
     };
@@ -1017,6 +1069,7 @@ export class Match {
     this.rng.state = s.rng;
     this.wind = s.wind;
     this.halftimeShown = s.halftimeShown;
+    this.playChanges = s.playChanges ?? PLAY_CHANGES;
     this.otTossed = s.otTossed;
     this.ballY = s.ballY;
     this.stage = 'result';
