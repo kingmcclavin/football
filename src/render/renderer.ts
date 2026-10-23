@@ -700,47 +700,58 @@ export class Renderer {
     return recs.indexOf(a) + 1;
   }
 
+  /** A solid pixel line (w x w pen) between two screen points. */
+  private pixLine(x0: number, y0: number, x1: number, y1: number, w = 2) {
+    const b = this.b;
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
+    const o = Math.floor(w / 2);
+    for (let k = 0; k <= n; k++) {
+      const u = k / n;
+      b.fillRect(Math.round(x0 + (x1 - x0) * u) - o, Math.round(y0 + (y1 - y0) * u) - o, w, w);
+    }
+  }
+
+  /** Pre-snap route art: solid lines, an arrowhead where the route keeps going, a dot where it stops. */
   private drawRoutes(m: Match) {
     const b = this.b;
     const sim = m.sim!;
     const play = m.play;
     if (!play) return;
+    const GREEN = '#5df06a';
+    const BLUE = '#6fa8ff';
+    const shadow = 'rgba(0,0,0,0.35)';
     for (const a of sim.actors) {
       if (a.side !== 0) continue;
+      const back = a.role === 'RB' || a.role === 'FB';
+      let pts: [number, number][] | null = null;
+      let ends: 'arrow' | 'dot' = 'arrow';
       if (a.route) {
-        const pts = [[a.x, a.y], ...a.route.pts];
-        b.fillStyle = 'rgba(255,255,255,0.75)';
-        for (let i = 0; i < pts.length - 1; i++) {
-          const [x0, y0] = pts[i];
-          let [x1, y1] = pts[i + 1];
-          if (i === pts.length - 2 && a.route.end === 'continue') {
-            const d = Math.hypot(x1 - x0, y1 - y0);
-            if (d > 14) {
-              x1 = x0 + ((x1 - x0) / d) * 14;
-              y1 = y0 + ((y1 - y0) / d) * 14;
-            }
-          }
-          const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2);
-          for (let s = 0; s < steps; s += 2) {
-            const u = s / steps;
-            b.fillRect(this.sx(lerp(x0, x1, u)), this.sy(lerp(y0, y1, u)), 1, 1);
-          }
-          if (i === pts.length - 2) {
-            b.fillStyle = '#ffe34a';
-            b.fillRect(this.sx(x1) - 1, this.sy(y1) - 1, 3, 3);
-            b.fillStyle = 'rgba(255,255,255,0.75)';
-          }
-        }
+        pts = [[a.x, a.y], ...a.route.pts.map((p) => [p[0], p[1]] as [number, number])];
+        ends = a.route.end === 'stop' ? 'dot' : 'arrow';
+        // keep long "keep going" legs to a readable length
+        const n = pts.length;
+        const [x0, y0] = pts[n - 2];
+        const [x1, y1] = pts[n - 1];
+        const d = Math.hypot(x1 - x0, y1 - y0);
+        if (ends === 'arrow' && d > 14) pts[n - 1] = [x0 + ((x1 - x0) / d) * 14, y0 + ((y1 - y0) / d) * 14];
       } else if (a.runPath) {
-        b.fillStyle = 'rgba(255,170,60,0.85)';
-        const pts = [[a.x, a.y], ...a.runPath];
-        for (let i = 0; i < pts.length - 1; i++) {
-          const [x0, y0] = pts[i];
-          const [x1, y1] = pts[i + 1];
-          const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2);
-          for (let s = 0; s < steps; s += 2) {
-            const u = s / steps;
-            b.fillRect(this.sx(lerp(x0, x1, u)), this.sy(lerp(y0, y1, u)), 1, 1);
+        pts = [[a.x, a.y], ...a.runPath];
+      }
+      if (!pts) continue;
+      const sp = pts.map(([x, y]) => [this.sx(x), this.sy(y)] as [number, number]);
+      for (const [col, off] of [[shadow, 1], [back ? BLUE : GREEN, 0]] as [string, number][]) {
+        b.fillStyle = col;
+        for (let k = 0; k < sp.length - 1; k++) this.pixLine(sp[k][0] + off, sp[k][1] + off, sp[k + 1][0] + off, sp[k + 1][1] + off);
+        const [ex, ey] = sp[sp.length - 1];
+        if (ends === 'dot') {
+          b.fillRect(ex - 2 + off, ey - 2 + off, 5, 5);
+        } else {
+          // arrowhead: two short strokes swept back from the tip
+          const [px, py] = sp[sp.length - 2];
+          const ang = Math.atan2(ey - py, ex - px);
+          for (const s of [-1, 1]) {
+            const a2 = ang + Math.PI + s * 0.6;
+            this.pixLine(ex + off, ey + off, ex + Math.cos(a2) * 5 + off, ey + Math.sin(a2) * 5 + off);
           }
         }
       }
@@ -755,25 +766,36 @@ export class Renderer {
     if (!q) return;
     const d = Math.hypot(tx - q.x, ty - q.y);
     const peak = passPeak(d);
-    const steps = 18;
+    // bold dotted arc, evenly spaced on screen, from the QB's hand to the target
+    const len = Math.hypot(this.sx(tx) - this.sx(q.x), this.sy(ty) - this.sy(q.y));
+    const steps = Math.max(6, Math.round(len / 7));
     for (let i = 1; i < steps; i++) {
       const u = i / steps;
       const x = lerp(q.x, tx, u);
       const y = lerp(q.y, ty, u);
       const z = 2 * (1 - u) + 1.3 * u + 4 * peak * u * (1 - u);
-      b.fillStyle = i % 2 ? 'rgba(255,255,255,0.9)' : 'rgba(255,227,74,0.9)';
-      b.fillRect(this.sx(x), this.sy(y) - Math.round(z * PASS_ZPX), 1, 1);
+      const px = this.sx(x);
+      const py = this.sy(y) - Math.round(z * PASS_ZPX);
+      b.fillStyle = 'rgba(0,0,0,0.4)';
+      b.fillRect(px, py + 1, 2, 2);
+      b.fillStyle = '#ffffff';
+      b.fillRect(px - 1, py, 2, 2);
     }
+    // target ring: white, two pixels thick, sized by the expected miss distance
     const sx = this.sx(tx);
     const sy = this.sy(ty);
-    const r = Math.max(3, Math.round(err * PXX));
-    b.strokeStyle = 'rgba(255,227,74,0.95)';
+    const rx = Math.max(4, Math.round(err * PXX));
+    const ry = Math.max(3, Math.round(err * PXY));
+    b.lineWidth = 2;
+    b.strokeStyle = 'rgba(0,0,0,0.35)';
     b.beginPath();
-    b.ellipse(sx + 0.5, sy + 0.5, r, Math.max(2, err * PXY), 0, 0, Math.PI * 2);
+    b.ellipse(sx + 1, sy + 1.5, rx, ry, 0, 0, Math.PI * 2);
     b.stroke();
-    b.fillStyle = '#ffffff';
-    b.fillRect(sx - 3, sy, 7, 1);
-    b.fillRect(sx, sy - 3, 1, 7);
+    b.strokeStyle = '#ffffff';
+    b.beginPath();
+    b.ellipse(sx, sy + 0.5, rx, ry, 0, 0, Math.PI * 2);
+    b.stroke();
+    b.lineWidth = 1;
     // too far indicator
     if (d > sim.maxThrow()) {
       b.fillStyle = '#ff6b6b';

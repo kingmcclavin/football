@@ -49,7 +49,12 @@ export interface PlayInput {
 export const NO_INPUT: PlayInput = { move: null, sprint: false, juke: false, dive: false, tuck: false, kneel: false, fairCatch: false, throwAt: null, scoot: 0 };
 
 /** Passing tuning: arcade-friendly completion rates (about 75% overall). */
-export const PASS_TUNE = { spread: 0.84, reach: 2.5, stretch: 1.4, hands: 0.06, contest: 0.78, tip: 0.3 };
+export const PASS_TUNE = { spread: 1.15, reach: 2.5, stretch: 1.4, hands: -0.03, contest: 1.15, tip: 0.3, ints: 6 };
+
+/** Seconds (sim time) a pass of d yards is in the air: a quick release and a fast, direct ball. */
+export function passTime(d: number, thp: number) {
+  return 0.1 + d / (34 + thp * 0.16);
+}
 
 /** Apex of a pass above its straight line, in yards: touch passes loft, short ones still clear the line. */
 export function passPeak(d: number) {
@@ -928,8 +933,7 @@ export class PlaySim {
     const ey = this.rng.normal(0, sigma);
     const fx = q.x + dx + ex;
     const fy = q.y + dy + ey;
-    const speed = 15 + r.thp * 0.1;
-    const dur = 0.22 + d / speed;
+    const dur = passTime(d, r.thp);
     this.ball = {
       state: 'air', holder: -1, x: q.x, y: q.y, z: 2, fx: q.x, fy: q.y, fz: 2, tx: fx, ty: fy,
       t: 0, dur, peak: passPeak(d), kind: 'pass', thrower: q.i, touched: new Set(),
@@ -1144,7 +1148,6 @@ export class PlaySim {
     const minT = s.play.cat === 'screen' ? 0.55 : s.play.cat === 'short' ? 0.75 : s.play.cat === 'deep' ? 1.5 : 1.1;
     if (this.t < (pressured ? 0.6 : minT)) return;
     const maxD = this.maxThrow();
-    const speed = 15 + r.thp * 0.1;
     let best: { a: Actor; x: number; y: number; score: number } | null = null;
     for (const a of this.actors) {
       if (a.side !== OFF || !this.isEligible(a) || (a.mode !== 'route' && a.mode !== 'track')) continue;
@@ -1153,14 +1156,16 @@ export class PlaySim {
       let ly = a.y;
       for (let it = 0; it < 3; it++) {
         const d = dist(q.x, q.y, lx, ly);
-        const T = 0.22 + d / speed;
+        const T = passTime(d, r.thp);
         [lx, ly] = this.predictRoute(a, T);
       }
       ly = clamp(ly, 1.5, FIELD_W - 1.5);
       lx = Math.min(lx, 109);
       const d = dist(q.x, q.y, lx, ly);
       if (d > maxD) continue;
-      const T = 0.22 + d / speed;
+      // judge openness cautiously (as if the ball were slower) so CPU quarterbacks still
+      // hold the ball against tight coverage and take sacks
+      const T = passTime(d, r.thp) * 0.3 + (0.22 + d / (15 + r.thp * 0.1)) * 0.7;
       // separation at the catch point
       let sep = 99;
       let lane = 99;
@@ -1908,7 +1913,7 @@ export class PlaySim {
           if (dist(o.x, o.y, b.x, b.y) < 0.85) {
             b.touched.add(o.i);
             const hands = o.sp.r.cth;
-            const pInt = clamp(0.06 + (hands - 50) * 0.003 + this.setup.skill.def * 0.03, 0.03, 0.25);
+            const pInt = clamp((0.06 + (hands - 50) * 0.003 + this.setup.skill.def * 0.03) * PASS_TUNE.ints, 0.03, 0.4);
             const pTip = PASS_TUNE.tip;
             const roll = this.rng.next();
             if (roll < pInt) {
@@ -1994,7 +1999,7 @@ export class PlaySim {
     // defender in better position plays the ball
     if (def && dd < 1.7 && (!rec || dd < dr - 0.35 || dr > PASS_TUNE.reach)) {
       const hands = def.sp.r.cth;
-      const pInt = clamp(0.1 + (hands - 50) * 0.005 + (def.sp.r.cov - 60) * 0.002 + skillD * 0.04 - (dd - 0.5) * 0.1, 0.04, 0.45);
+      const pInt = clamp((0.1 + (hands - 50) * 0.005 + (def.sp.r.cov - 60) * 0.002 + skillD * 0.04 - (dd - 0.5) * 0.1) * PASS_TUNE.ints, 0.04, 0.6);
       if (this.rng.chance(pInt)) {
         this.interception(def);
       } else {
@@ -2020,7 +2025,7 @@ export class PlaySim {
       this.completeCatch(rec, lx, ly, contest > 0.2);
       return;
     }
-    if (def && contest > 0 && this.rng.chance(contest * 0.12 * (0.6 + def.sp.r.cth / 100))) {
+    if (def && contest > 0 && this.rng.chance(contest * 0.12 * PASS_TUNE.ints * (0.6 + def.sp.r.cth / 100))) {
       this.interception(def);
       return;
     }
